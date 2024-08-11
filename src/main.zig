@@ -50,29 +50,16 @@ const YArray = struct {
         self.list.deinit();
     }
 
-    pub fn local_insert(self: *YArray, newCharacter: YataCharacter) anyerror!void {
-        for (self.list.allocatedSlice(), 0..) |yc, currentIdx| {
-            if (newCharacter.id > yc.id) {
-                try self.list.insert(currentIdx + 1, newCharacter);
-                self.current_capacity += newCharacter.content.len;
-            }
-        }
+    pub fn local_insert(self: *YArray, newCharacter: YataCharacter, pos: usize) anyerror!void {
+        try self.list.insert(pos, newCharacter);
     }
 
     pub fn content(self: *YArray) anyerror![]const u8 {
         const yataAllocation = self.list.allocatedSlice();
-        const contentString = try self.allocator.?.alloc(u8, self.current_capacity);
-        var idx: u64 = 0;
-        for (yataAllocation) |value| {
-            std.debug.print("lens {d} {s}\n", .{ value.id, value.content });
-            const buf = contentString[idx..value.content.len];
-            if (buf.len == 0) {
-                break;
-            }
-            @memcpy(buf, value.content);
-            idx += value.content.len;
+        for (yataAllocation, 0..) |value, i| {
+            std.debug.print("{d}:{s}\n", .{ i, value.content });
         }
-        return contentString;
+        return "";
     }
 };
 
@@ -98,7 +85,8 @@ const YDoc = struct {
 pub fn main() anyerror!void {
     var new_doc: YDoc = try YDoc.init();
     defer new_doc.deinit();
-    try new_doc.array.local_insert(YataCharacter.new(3, "*", "*", "*", "a"));
+    try new_doc.array.local_insert(YataCharacter.new(3, "*", "*", "*", "a"), 2);
+    try new_doc.array.local_insert(YataCharacter.new(4, "*", "*", "*", "b"), 3);
     const dc = try new_doc.content();
     std.debug.print("{s}", .{dc});
 }
