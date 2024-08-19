@@ -52,14 +52,23 @@ const YArray = struct {
 
     pub fn local_insert(self: *YArray, newCharacter: YataCharacter, pos: usize) anyerror!void {
         try self.list.insert(pos, newCharacter);
+        self.current_capacity += newCharacter.content.len;
     }
 
-    pub fn content(self: *YArray) anyerror![]const u8 {
+    // caller owns memory
+    pub fn content(self: *YArray, al: std.mem.Allocator) anyerror![]const u8 {
         const yataAllocation = self.list.allocatedSlice();
+        const stringBuf = try al.alloc(u8, self.current_capacity);
+        var p: usize = 0;
+
         for (yataAllocation, 0..) |value, i| {
-            std.debug.print("{d}:{s}\n", .{ i, value.content });
+            if (i >= self.list.items.len) break;
+            if (std.mem.eql(u8, value.content, "*")) continue;
+            const n = p + value.content.len;
+            @memcpy(stringBuf[p..n], value.content);
+            p += value.content.len;
         }
-        return "";
+        return stringBuf;
     }
 };
 
@@ -77,8 +86,8 @@ const YDoc = struct {
         self.array.deinit();
     }
 
-    pub fn content(self: *YDoc) anyerror![]const u8 {
-        return self.array.content();
+    pub fn content(self: *YDoc, al: std.mem.Allocator) anyerror![]const u8 {
+        return self.array.content(al);
     }
 };
 
@@ -87,14 +96,10 @@ pub fn main() anyerror!void {
     defer new_doc.deinit();
     try new_doc.array.local_insert(YataCharacter.new(3, "*", "*", "*", "a"), 2);
     try new_doc.array.local_insert(YataCharacter.new(4, "*", "*", "*", "b"), 3);
-    const dc = try new_doc.content();
+    try new_doc.array.local_insert(YataCharacter.new(4, "*", "*", "*", "c"), 4);
+    var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const al = areAl.allocator();
+    const dc = try new_doc.content(al);
+    defer al.free(dc);
     std.debug.print("{s}", .{dc});
-}
-
-test "local_insert" {
-    var new_doc: YDoc = YDoc.init();
-    defer new_doc.deinit();
-    try new_doc.array.local_insert(YataCharacter.new(3, "*", "*", "*", "a"));
-    const dc = try new_doc.content();
-    std.debug.print("{any}", .{dc});
 }
