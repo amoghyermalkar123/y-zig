@@ -1,16 +1,16 @@
 const std = @import("std");
 
-const CLIENT_ID: u8 = 1;
+const CLIENT_ID: u64 = 1;
 
 const YataCharacter = struct {
-    id: u8,
-    originLeft: []const u8,
+    id: u64,
+    originLeft: u64,
     left: []const u8,
     right: []const u8,
     isDeleted: bool,
     content: []const u8,
 
-    pub fn new(id: u8, originLeft: []const u8, left: []const u8, right: []const u8, content: []const u8) YataCharacter {
+    pub fn new(id: u64, originLeft: u64, left: []const u8, right: []const u8, content: []const u8) YataCharacter {
         return YataCharacter{
             .id = id,
             .originLeft = originLeft,
@@ -37,8 +37,8 @@ const YArray = struct {
     pub fn init(config: InitConfig) anyerror!YArray {
         const decided_allocator = config.allocator orelse InitConfig.default_allocator;
         var arr = std.ArrayList(YataCharacter).init(decided_allocator);
-        try arr.insert(0, YataCharacter.new(1, "", "", "*", "*"));
-        try arr.insert(1, YataCharacter.new(2, "*", "*", "", "*"));
+        try arr.insert(0, YataCharacter.new(1, 0, "", "*", "*"));
+        try arr.insert(1, YataCharacter.new(2, 0, "*", "", "*"));
         return YArray{
             .list = arr,
             .current_capacity = 0,
@@ -53,6 +53,23 @@ const YArray = struct {
     pub fn local_insert(self: *YArray, newCharacter: YataCharacter, pos: usize) anyerror!void {
         try self.list.insert(pos, newCharacter);
         self.current_capacity += newCharacter.content.len;
+        return;
+    }
+
+    pub fn integrate_insert(self: *YArray, updates: []YataCharacter, remote_client_id: u64) anyerror!void {
+        for (updates) |i| {
+            for (self.list.items, 0..) |o, listPos| {
+                if (o.id < i.originLeft or i.originLeft <= o.originLeft) {
+                    if (o.originLeft != i.originLeft or remote_client_id < CLIENT_ID) {
+                        // i is a successor of o
+                        try self.list.insert(listPos + 1, i);
+                        // TODO: update i left and right
+                        self.current_capacity += i.content.len;
+                    }
+                }
+            }
+        }
+        return;
     }
 
     // caller owns memory
@@ -102,4 +119,25 @@ pub fn main() anyerror!void {
     const dc = try new_doc.content(al);
     defer al.free(dc);
     std.debug.print("{s}", .{dc});
+}
+
+test "integrate: basic test" {
+    var new_doc: YDoc = try YDoc.init();
+    defer new_doc.deinit();
+    try new_doc.array.local_insert(YataCharacter.new(3, 2, "*", "*", "Y"), 2);
+    try new_doc.array.local_insert(YataCharacter.new(4, 3, "Y", "T", "A"), 3);
+    try new_doc.array.local_insert(YataCharacter.new(5, 4, "A", "A", "T"), 4);
+    try new_doc.array.local_insert(YataCharacter.new(6, 5, "T", "*", "A"), 5);
+
+    var updates = [1]YataCharacter{
+        YataCharacter.new(7, 4, "A", "T", "C"),
+    };
+    // simulating remote doc integration
+    try new_doc.array.integrate_insert(&updates, 2);
+
+    var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const al = areAl.allocator();
+    const dc = try new_doc.content(al);
+    defer al.free(dc);
+    std.debug.print("{s}\n", .{dc});
 }
