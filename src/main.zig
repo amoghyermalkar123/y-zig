@@ -59,7 +59,7 @@ const YArray = struct {
     pub fn integrate_insert(self: *YArray, updates: []YataCharacter, remote_client_id: u64) anyerror!void {
         for (updates) |i| {
             for (self.list.items, 0..) |o, listPos| {
-                std.debug.print("o.id:{d}\ti.originLeft:{d}\to.originLeft:{d}\tcontent:{s}\n", .{ o.id, i.originLeft, o.originLeft, i.content });
+                std.debug.print("o.id: {d},{s}\t i.id: {d},{s}, i.originLeft: {d}\t o.originLeft: {d}\n", .{ o.id, o.content, i.id, i.content, i.originLeft, o.originLeft });
                 if (o.id < i.originLeft or i.originLeft <= o.originLeft) {
                     if (o.originLeft != i.originLeft or remote_client_id < CLIENT_ID) {
                         // i is a successor of o
