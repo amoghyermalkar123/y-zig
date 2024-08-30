@@ -27,12 +27,6 @@ const YataCharacter = struct {
             .isDeleted = false,
         };
     }
-
-    fn assign_neighbors(self: *YataCharacter, left: ?*YataCharacter, right: ?*YataCharacter) void {
-        self.left = left orelse self.left;
-        self.right = right orelse self.right;
-        return;
-    }
 };
 
 const YArray = struct {
@@ -48,9 +42,7 @@ const YArray = struct {
     };
 
     pub fn get_adj_neighbors(self: *YArray, pos: usize) [2]YataCharacter {
-        // std.debug.print("pos {d} ", .{pos});
-        // std.debug.print("posPrev {d}, posNext {d}, len {d}\n", .{ pos - 2, pos - 1, self.list.items.len });
-        return [2]YataCharacter{ self.list.items[pos - 1], self.list.items[pos - 2] };
+        return [2]YataCharacter{ self.list.items[pos - 2], self.list.items[pos - 1] };
     }
 
     pub fn init(config: InitConfig) anyerror!YArray {
@@ -71,11 +63,17 @@ const YArray = struct {
 
     pub fn local_insert(self: *YArray, newCharacter: *YataCharacter, pos: usize) anyerror!void {
         var neighs = self.get_adj_neighbors(pos);
-        _ = newCharacter.assign_neighbors(&neighs[0], &neighs[1]);
-        _ = &neighs[0].assign_neighbors(null, newCharacter);
-        _ = &neighs[1].assign_neighbors(newCharacter, null);
-        std.debug.print("adding: {s} left: {s} right: {s}\n", .{ newCharacter.content, newCharacter.left.?.content, newCharacter.right.?.content });
-        try self.list.insert(pos, newCharacter.*);
+        std.debug.print("for {s} -> neighbors: {s},{s}\n", .{ newCharacter.content, neighs[0].content, neighs[1].content });
+        var left = &neighs[0];
+        var right = &neighs[1];
+        newCharacter.*.left = left;
+        newCharacter.*.right = right;
+        left.right = newCharacter;
+        right.left = newCharacter;
+        std.debug.print("res {s} -> neighbors: {s},{s}\n", .{ newCharacter.content, newCharacter.left.?.content, newCharacter.right.?.content });
+        std.debug.print("left's right {s},{s}\n", .{ left.content, left.right.?.content });
+        std.debug.print("right's left {s},{s}\n", .{ right.content, right.left.?.content });
+        try self.list.insert(pos - 1, newCharacter.*);
         self.current_capacity += newCharacter.content.len;
         return;
     }
@@ -183,10 +181,21 @@ test "neighbors" {
 
     var two = YataCharacter.new(4, null, null, null, "b");
     try new_doc.array.local_insert(&two, 3);
+    std.debug.print("==={s}\n", .{two.left.?.content});
 
     var thr = YataCharacter.new(5, null, null, null, "c");
     try new_doc.array.local_insert(&thr, 4);
+    std.debug.print("==={s}\n", .{two.left.?.content});
 
-    std.debug.print("{s}{s}\n", .{ two.left.?.content, one.content });
-    try testify.expectEqual(two.left.?.content, one.content);
+    var fr = YataCharacter.new(6, null, null, null, "d");
+    try new_doc.array.local_insert(&fr, 5);
+    std.debug.print("==={s}\n", .{two.left.?.content});
+
+    // var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // const al = areAl.allocator();
+    // const dc = try new_doc.content(al);
+    // std.debug.print("------content-----{s}\t\n", .{dc});
+    // al.free(dc);
+
+    try testify.expectEqualSlices(u8, two.left.?.content, one.content);
 }
