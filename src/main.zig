@@ -181,15 +181,15 @@ test "neighbors" {
 
     var two = YataCharacter.new(4, null, null, null, "b");
     try new_doc.array.local_insert(&two, 3);
-    std.debug.print("==={s}\n", .{two.left.?.content});
+    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
 
     var thr = YataCharacter.new(5, null, null, null, "c");
     try new_doc.array.local_insert(&thr, 4);
-    std.debug.print("==={s}\n", .{two.left.?.content});
+    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
 
     var fr = YataCharacter.new(6, null, null, null, "d");
     try new_doc.array.local_insert(&fr, 5);
-    std.debug.print("==={s}\n", .{two.left.?.content});
+    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
 
     // var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // const al = areAl.allocator();
