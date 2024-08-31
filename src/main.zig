@@ -41,10 +41,6 @@ const YArray = struct {
         var default_allocator = default_gpa.allocator();
     };
 
-    pub fn get_adj_neighbors(self: *YArray, pos: usize) [2]YataCharacter {
-        return [2]YataCharacter{ self.list.items[pos - 2], self.list.items[pos - 1] };
-    }
-
     pub fn init(config: InitConfig) anyerror!YArray {
         const decided_allocator = config.allocator orelse InitConfig.default_allocator;
         var arr = std.ArrayList(YataCharacter).init(decided_allocator);
@@ -62,20 +58,25 @@ const YArray = struct {
     }
 
     pub fn local_insert(self: *YArray, newCharacter: *YataCharacter, pos: usize) anyerror!void {
-        var neighs = self.get_adj_neighbors(pos);
-        std.debug.print("for {s} -> neighbors: {s},{s}\n", .{ newCharacter.content, neighs[0].content, neighs[1].content });
-        var left = &neighs[0];
-        var right = &neighs[1];
-        newCharacter.*.left = left;
-        newCharacter.*.right = right;
-        left.right = newCharacter;
-        right.left = newCharacter;
-        std.debug.print("res {s} -> neighbors: {s},{s}\n", .{ newCharacter.content, newCharacter.left.?.content, newCharacter.right.?.content });
-        std.debug.print("left's right {s},{s}\n", .{ left.content, left.right.?.content });
-        std.debug.print("right's left {s},{s}\n", .{ right.content, right.left.?.content });
+        newCharacter.*.left = &self.list.items[pos - 2];
+        newCharacter.*.originLeft = &self.list.items[pos - 2];
+        newCharacter.*.right = &self.list.items[pos - 1];
+        self.list.items[pos - 2].right = newCharacter;
+        self.list.items[pos - 1].left = newCharacter;
         try self.list.insert(pos - 1, newCharacter.*);
         self.current_capacity += newCharacter.content.len;
         return;
+        // TODO: the below implementation was an older one and it didn't work,
+        // figure out why
+        // pub fn get_adj_neighbors(self: *YArray, pos: usize) [2]YataCharacter {
+        //     return [2]YataCharacter{ self.list.items[pos - 2], self.list.items[pos - 1] };
+        // }
+
+        // var neighs = self.get_adj_neighbors(pos);
+        // newCharacter.*.left = &neighs[0];
+        // newCharacter.*.right = &neighs[1];
+        // neighs[0].right = newCharacter;
+        // neighs[1].left = newCharacter;
     }
 
     pub fn integrate_insert(self: *YArray, updates: []Update, remote_client_id: u64) anyerror!void {
@@ -87,8 +88,7 @@ const YArray = struct {
                     if (listPos > i.position) {
                         break;
                     }
-                    var neighs = self.get_adj_neighbors(listPos);
-                    var is = YataCharacter.new(10, &neighs[0], &neighs[0], &neighs[1], i.character);
+                    var is = YataCharacter.new(10, null, null, null, i.character);
                     if ((o.id < is.originLeft.?.id or is.originLeft.?.id <= o.originLeft.?.id) and (o.originLeft.?.id != is.originLeft.?.id or remote_client_id < CLIENT_ID)) {
                         // i is a successor of o
                         try self.local_insert(&is, listPos + 1);
@@ -147,17 +147,17 @@ test "integrate: basic test" {
     var new_doc: YDoc = try YDoc.init();
     defer new_doc.deinit();
 
-    var neigh = new_doc.array.get_adj_neighbors(2);
-    var one = YataCharacter.new(3, &neigh[0], &neigh[0], &neigh[1], "a");
+    var one = YataCharacter.new(3, null, null, null, "a");
     try new_doc.array.local_insert(&one, 2);
 
-    neigh = new_doc.array.get_adj_neighbors(3);
-    var two = YataCharacter.new(4, &neigh[0], &neigh[0], &neigh[1], "b");
+    var two = YataCharacter.new(4, null, null, null, "b");
     try new_doc.array.local_insert(&two, 3);
 
-    neigh = new_doc.array.get_adj_neighbors(4);
-    var thr = YataCharacter.new(5, &neigh[0], &neigh[0], &neigh[1], "c");
+    var thr = YataCharacter.new(5, null, null, null, "c");
     try new_doc.array.local_insert(&thr, 4);
+
+    var fr = YataCharacter.new(6, null, null, null, "d");
+    try new_doc.array.local_insert(&fr, 5);
 
     var updates = [1]Update{Update{ .character = "y", .position = 3, .leftContent = "a", .rightContent = "b" }};
 
@@ -181,21 +181,26 @@ test "neighbors" {
 
     var two = YataCharacter.new(4, null, null, null, "b");
     try new_doc.array.local_insert(&two, 3);
-    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
 
     var thr = YataCharacter.new(5, null, null, null, "c");
     try new_doc.array.local_insert(&thr, 4);
-    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
 
     var fr = YataCharacter.new(6, null, null, null, "d");
     try new_doc.array.local_insert(&fr, 5);
-    std.debug.print("==={s},{s}\n", .{ two.content, two.left.?.content });
-
-    // var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    // const al = areAl.allocator();
-    // const dc = try new_doc.content(al);
-    // std.debug.print("------content-----{s}\t\n", .{dc});
-    // al.free(dc);
 
     try testify.expectEqualSlices(u8, two.left.?.content, one.content);
+}
+
+fn debufprint(new_doc: *YArray) void {
+    for (new_doc.list.items) |vl| {
+        std.debug.print("-debug- char:{s} ", .{vl.content});
+        if (vl.left != null) {
+            std.debug.print("left :{s} ", .{vl.left.?.content});
+        }
+        if (vl.right != null) {
+            std.debug.print("right :{s} ", .{vl.right.?.content});
+        }
+        std.debug.print("\n", .{});
+    }
+    return;
 }
