@@ -2,14 +2,12 @@ const std = @import("std");
 
 const CLIENT_ID: u64 = 1;
 
-const Update = struct {
+pub const Update = struct {
     character: []const u8,
     position: usize,
-    leftContent: []const u8,
-    rightContent: []const u8,
 };
 
-const YataCharacter = struct {
+pub const YataCharacter = struct {
     id: u64,
     originLeft: ?*YataCharacter,
     left: ?*YataCharacter,
@@ -29,7 +27,7 @@ const YataCharacter = struct {
     }
 };
 
-const YArray = struct {
+pub const YArray = struct {
     list: std.ArrayList(YataCharacter),
     current_capacity: u64,
     allocator: ?std.mem.Allocator = null,
@@ -80,15 +78,25 @@ const YArray = struct {
     }
 
     pub fn integrate_insert(self: *YArray, updates: []Update, remote_client_id: u64) anyerror!void {
+        // iterate over updates
         for (updates) |i| {
+            // create a slice of conflicting ops
             const conflictingOps = self.list.items[i.position - 1 .. i.position];
-            if (conflictingOps.len > 0) {
+            std.debug.print("conlen {d}\n", .{conflictingOps.len});
+            // if len 0/ 1 -> locl insert
+            if (conflictingOps.len == 0 or conflictingOps.len == 1) {
+                var is = YataCharacter.new(10, null, null, null, i.character);
+                try self.local_insert(&is, i.position - 1);
+            } else {
+                // else range over conflicting ops
                 var listPos = i.position - 1;
                 for (conflictingOps) |o| {
                     if (listPos > i.position) {
+                        std.debug.print("break\n", .{});
                         break;
                     }
-                    var is = YataCharacter.new(10, null, null, null, i.character);
+                    var ol = self.list.items[listPos - 1];
+                    var is = YataCharacter.new(10, &ol, null, null, i.character);
                     if ((o.id < is.originLeft.?.id or is.originLeft.?.id <= o.originLeft.?.id) and (o.originLeft.?.id != is.originLeft.?.id or remote_client_id < CLIENT_ID)) {
                         // i is a successor of o
                         try self.local_insert(&is, listPos + 1);
@@ -117,7 +125,7 @@ const YArray = struct {
     }
 };
 
-const YDoc = struct {
+pub const YDoc = struct {
     clientId: u8 = CLIENT_ID,
     array: YArray,
 
@@ -139,68 +147,4 @@ const YDoc = struct {
 pub fn main() anyerror!void {
     var new_doc: YDoc = try YDoc.init();
     defer new_doc.deinit();
-}
-
-const testify = std.testing;
-
-test "integrate: basic test" {
-    var new_doc: YDoc = try YDoc.init();
-    defer new_doc.deinit();
-
-    var one = YataCharacter.new(3, null, null, null, "a");
-    try new_doc.array.local_insert(&one, 2);
-
-    var two = YataCharacter.new(4, null, null, null, "b");
-    try new_doc.array.local_insert(&two, 3);
-
-    var thr = YataCharacter.new(5, null, null, null, "c");
-    try new_doc.array.local_insert(&thr, 4);
-
-    var fr = YataCharacter.new(6, null, null, null, "d");
-    try new_doc.array.local_insert(&fr, 5);
-
-    var updates = [1]Update{Update{ .character = "y", .position = 3, .leftContent = "a", .rightContent = "b" }};
-
-    // simulating remote doc integration
-    try new_doc.array.integrate_insert(&updates, 2);
-
-    var areAl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const al = areAl.allocator();
-    const dc = try new_doc.content(al);
-    defer al.free(dc);
-    const d = "aybc";
-    try testify.expectEqualSlices(u8, d, dc);
-}
-
-test "neighbors" {
-    var new_doc: YDoc = try YDoc.init();
-    defer new_doc.deinit();
-
-    var one = YataCharacter.new(3, null, null, null, "a");
-    try new_doc.array.local_insert(&one, 2);
-
-    var two = YataCharacter.new(4, null, null, null, "b");
-    try new_doc.array.local_insert(&two, 3);
-
-    var thr = YataCharacter.new(5, null, null, null, "c");
-    try new_doc.array.local_insert(&thr, 4);
-
-    var fr = YataCharacter.new(6, null, null, null, "d");
-    try new_doc.array.local_insert(&fr, 5);
-
-    try testify.expectEqualSlices(u8, two.left.?.content, one.content);
-}
-
-fn debufprint(new_doc: *YArray) void {
-    for (new_doc.list.items) |vl| {
-        std.debug.print("-debug- char:{s} ", .{vl.content});
-        if (vl.left != null) {
-            std.debug.print("left :{s} ", .{vl.left.?.content});
-        }
-        if (vl.right != null) {
-            std.debug.print("right :{s} ", .{vl.right.?.content});
-        }
-        std.debug.print("\n", .{});
-    }
-    return;
 }
