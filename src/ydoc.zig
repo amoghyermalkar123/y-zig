@@ -1,5 +1,10 @@
-const docstore = @import("docstore.zig");
+const Store = @import("docstore.zig").Store;
 
 pub const YDoc = struct {
-    store: docstore.Store,
+    store: Store,
+
+    pub fn new() anyerror!YDoc {
+        const d = try Store.new();
+        return YDoc{ .store = d };
+    }
 };
