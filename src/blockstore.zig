@@ -1,6 +1,7 @@
 const std = @import("std");
 const Item = @import("item.zig").Item;
 const ID = @import("item.zig").ID;
+const Update = @import("update/updates.zig").Update;
 
 // BlockStore represents a document-level block store
 pub const BlockStore = struct {
@@ -37,7 +38,13 @@ pub const BlockStore = struct {
         self.currentClock = new_clock;
     }
 
-    pub fn apply_updates() !void {}
+    pub fn apply_updates(update: Update) !void {
+        // iterate over each update block per
+        // integrate block
+        // create respective remaining update and delete set
+        // retry
+        // else return
+    }
 };
 
 // BlockCell represents either an integration-block or a GC-block
