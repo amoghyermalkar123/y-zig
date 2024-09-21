@@ -39,11 +39,20 @@ pub const BlockStore = struct {
     }
 
     pub fn apply_updates(update: Update) !void {
-        // iterate over each update block per
-        // integrate block
-        // create respective remaining update and delete set
-        // retry
-        // else return
+        // algorithm
+        // iterate over update blocks
+        //
+        // for every block
+        // get SV (state vector) offset difference of the clock
+        // check if the block is dependent on a missing block
+        // if yes fetch this dependent block and integrate this block
+        // else integrate current block
+        // if dependent block could not be fetched, add to pending stack
+        // same logic for a block that needs to be delete-integrated
+    }
+
+    pub fn fetch_dependent_blocks() !void {
+        // algorithm - to find a block that is dependent (causal) to another block
     }
 };
 
