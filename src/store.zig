@@ -3,6 +3,27 @@ const Item = @import("item.zig").Item;
 const ID = @import("item.zig").ID;
 const Update = @import("update/updates.zig").Update;
 
+// Store wraps the BlockStore type
+// It handles integration and operations related to updates, merges, etc
+pub const Store = struct {
+    blocks: BlockStore,
+
+    pub fn new() anyerror!Store {
+        const blk = try BlockStore.new();
+        return Store{ .blocks = blk };
+    }
+};
+
+// test "basic" {
+//     const store = Store.new();
+//     store.insert();
+//
+//     const updates = [1]u64{1};
+//     const pending = store.apply_updates(updates);
+//
+//     store.apply_updates(pending);
+// }
+
 // BlockStore represents a document-level block store
 pub const BlockStore = struct {
     clientId: u64,
@@ -38,21 +59,16 @@ pub const BlockStore = struct {
         self.currentClock = new_clock;
     }
 
-    pub fn apply_updates(update: Update) !void {
-        // algorithm
-        // iterate over update blocks
+    // function will return void if integration was successfull
+    // otherwise returns an Update struct consisting of blocks that couldnt be integrated
+    pub fn integrate_update() Update!void {
+        // first check if the update block received can be inserted next in the clock sequence
+        // for the given client, if not add it to pending stack and find the missing client info
+        // and start integrating blocks for that client
         //
-        // for every block
-        // get SV (state vector) offset difference of the clock
-        // check if the block is dependent on a missing block
-        // if yes fetch this dependent block and integrate this block
-        // else integrate current block
-        // if dependent block could not be fetched, add to pending stack
-        // same logic for a block that needs to be delete-integrated
-    }
+        // if it can be inserted next in the clock sequence, check if it's conflicting with existing elements
+        // if yes, resolve conflicts and then insert, if conflict cannot be resolved, add to pending stack and return
 
-    pub fn fetch_dependent_blocks() !void {
-        // algorithm - to find a block that is dependent (causal) to another block
     }
 };
 
@@ -65,7 +81,7 @@ const BlockCell = union {
 
 // ClientBlocksList is a list of BlockCells. This list is maintained per client that
 // a running instance of y-zig knows about.
-const ClientBlocksList = struct {
+pub const ClientBlocksList = struct {
     list: std.ArrayList(BlockCell),
     var default_gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var default_allocator = default_gpa.allocator();
