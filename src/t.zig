@@ -77,28 +77,19 @@ test "basic-neighbors" {
     );
     try aa.add(1, &b1);
 
-    var b2 = Block.block(
-        ID.id(m_clk.getClock(), local_client),
-        "A",
-    );
-    // a user will always start from 1-indexed document so naturally
-    // the first position they will ever insert anything into is pos 1
-    try aa.add(1, &b2);
-
-    var b3 = Block.block(
-        ID.id(m_clk.getClock(), local_client),
-        "B",
-    );
-    try aa.add(2, &b3);
-
-    var b4 = Block.block(
-        ID.id(m_clk.getClock(), local_client),
-        "C",
-    );
-    try aa.add(3, &b4);
+    var counter: u64 = 1;
+    while (counter < 10000000) {
+        var b3 = Block.block(
+            ID.id(m_clk.getClock(), local_client),
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra est, et congue eros lacus eu lectus. Sed sed nunc. Morbi arcu libero, rutrum ac, lobortis nec, dictum eu, sapien. Mauris venenatis consequat lorem. Phasellus ut lectus quis ligula vehicula scelerisque. Integer porta, lectus at sagittis pulvinar, augue turpis rhoncus nunc, eget aliquam justo nisi in odio. Nam euismod tellus id erat.Phasellus non purus gravida, cursus turpis quis, varius quam. Proin aliquet sapien sed tortor commodo, at pharetra quam gravida. Mauris ac tincidunt felis. Etiam egestas mauris id ultricies fringilla. Aliquam erat volutpat. Nam pellentesque eget eros at auctor. Proin vel tincidunt ligula. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.",
+        );
+        try aa.add(counter, &b3);
+        counter += 1;
+    }
 
     var p = aa.list.items[0];
     var o = aa.list.items[1];
+
     while (true) {
         if (p.right != null and o.right != null) {
             try std.testing.expectEqual(p.right.?.id, o.id);
@@ -108,4 +99,5 @@ test "basic-neighbors" {
             break;
         }
     }
+    std.debug.print("\n", .{});
 }
