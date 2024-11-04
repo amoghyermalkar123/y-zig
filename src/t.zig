@@ -43,6 +43,10 @@ pub const AssociativeArray = struct {
 
     pub fn add(self: *Self, pos: usize, b: *Block) anyerror!void {
         try self.list.insert(pos, b);
+        if (self.list.items.len > 2) {
+            self.list.items[pos - 1].right = b;
+            b.right = self.list.items[pos + 1];
+        }
     }
 
     // caller owns memory
@@ -93,7 +97,15 @@ test "basic-neighbors" {
     );
     try aa.add(3, &b4);
 
-    for (aa.list.items) |v| {
-        std.debug.print("{s}:{any}\n", .{ v.content, v.right });
+    var p = aa.list.items[0];
+    var o = aa.list.items[1];
+    while (true) {
+        if (p.right != null and o.right != null) {
+            try std.testing.expectEqual(p.right.?.id, o.id);
+            p = p.right.?;
+            o = o.right.?;
+        } else {
+            break;
+        }
     }
 }
