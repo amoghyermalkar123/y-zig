@@ -1,6 +1,6 @@
 const std = @import("std");
 const Updates = @import("update.zig").Updates;
-const MarkerSystem = @import("marker.zig").AssociativeArray;
+const MarkerSystem = @import("search_marker.zig").AssociativeArray;
 const MonotonicClock = @import("global_clock.zig").MonotonicClock;
 
 const LOCAL_CLIENT = 1;
