@@ -30,6 +30,7 @@ pub const Marker = struct {
     timestamp: i128,
 };
 
+// TODO: update markers at every change in the doc
 pub fn SearchMarkerType() type {
     return struct {
         markers: [10]Marker,
