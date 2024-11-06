@@ -62,15 +62,25 @@ pub fn SearchMarkerType() type {
                 self.curr_idx += 1;
             }
         }
+
+        pub fn find_position(self: *Self, pos: usize) Marker {
+            var marker = Marker{};
+            for (self.markers) |v| {
+                if (v.pos > pos) {
+                    marker = v;
+                    break;
+                }
+            }
+            return marker;
+        }
     };
 }
 
-// heap-based doubly linked list
-// append only
-pub fn AssociativeArrayType() type {
+pub fn BlockStoreType() type {
     return struct {
         start: ?*Block = null,
         allocator: Allocator,
+        markers: *SearchMarkerType(),
 
         const Self = @This();
 
@@ -80,14 +90,11 @@ pub fn AssociativeArrayType() type {
             };
         }
 
-        pub fn add_block(self: *Self, block: Block) anyerror!void {
+        pub fn add_block(self: *Self, block: Block, pos: usize, marker: bool) anyerror!void {
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
-            if (self.start == null) {
-                self.start = new_block;
-            } else {
-                self.start.?.right = new_block;
-            }
+            if (self.start == null) self.start = new_block else self.start.?.right = new_block;
+            if (marker) self.markers.new(pos, new_block);
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
@@ -105,7 +112,7 @@ test "basic" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
     defer arena.deinit();
-    var array = AssociativeArrayType().init(allocator);
+    var array = BlockStoreType().init(allocator);
     try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
 }
 
@@ -114,7 +121,7 @@ test "traverse" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
     defer arena.deinit();
-    var array = AssociativeArrayType().init(allocator);
+    var array = BlockStoreType().init(allocator);
     try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
