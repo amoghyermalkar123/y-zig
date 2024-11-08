@@ -29,19 +29,32 @@ pub fn BlockStoreType() type {
         start: ?*Block = null,
         allocator: Allocator,
         markers: *SearchMarkerType(),
+        clock: Clock,
 
         const Self = @This();
 
         pub fn init(allocator: Allocator) Self {
-            return Self{
+            var s = Self{
                 .allocator = allocator,
+                .markers = SearchMarkerType(),
+                .clock = Clock.init(),
             };
+            const b = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 0, true) catch unreachable;
+            s.start = b;
+            _ = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 1, false) catch unreachable;
         }
 
+        // returns error or a pointer to a heap allocated block
         pub fn add_block(self: *Self, block: Block, pos: usize, marker: bool) anyerror!*Block {
+            // allocate some space for this block on the heap
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
             if (self.start == null) self.start = new_block else self.start.?.right = new_block;
+            // attach the neighbors
+            const right = self.markers.get_curr_pos_block(pos);
+            new_block.right = right;
+            new_block.left = right.left;
+            // mark this block as a search marker and store it on the search marker index
             if (marker) self.markers.new(pos, new_block);
             return new_block;
         }
@@ -68,8 +81,8 @@ test "basic" {
 test "traverse" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena.allocator();
     defer arena.deinit();
+    const allocator = arena.allocator();
     var array = BlockStoreType().init(allocator);
     try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
 
@@ -79,3 +92,5 @@ test "traverse" {
     const content = try buf.toOwnedSlice();
     std.debug.print("Content: {s}\n", .{content});
 }
+
+test "marker" {}

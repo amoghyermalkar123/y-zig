@@ -33,10 +33,6 @@ const DotCloud = struct {
         const client_blocks = self.client_blocks.get(LOCAL_CLIENT) orelse return DotCloudError.ClientDoesNotExist;
         // allocate this block
         const block_ptr = try self.block_store.add_block(b.*, pos, true);
-        // attach the neighbors
-        const right = self.search_markers.get_curr_pos_block(pos);
-        block_ptr.right = right;
-        block_ptr.left = right.left;
         // add the final block into the local client list
         try client_blocks.append(block_ptr);
     }
