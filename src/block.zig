@@ -2,7 +2,7 @@ const std = @import("std");
 const Clock = @import("global_clock.zig").MonotonicClock;
 const Allocator = std.mem.Allocator;
 const ID = @import("doc.zig").ID;
-const SearchMarkerType = @import("search_marker.zig").SearchMarkerType;
+const SearchMarkersType = @import("search_marker.zig").SearchMarkerType;
 
 pub const Block = struct {
     id: ID,
@@ -25,23 +25,27 @@ pub const Block = struct {
 };
 
 pub fn BlockStoreType() type {
+    const SearchMarkers = SearchMarkersType();
+
     return struct {
         start: ?*Block = null,
         allocator: Allocator,
-        markers: *SearchMarkerType(),
+        markers: *SearchMarkers,
         clock: Clock,
 
         const Self = @This();
 
         pub fn init(allocator: Allocator) Self {
+            var marker = SearchMarkers.init();
             var s = Self{
                 .allocator = allocator,
-                .markers = SearchMarkerType(),
                 .clock = Clock.init(),
+                .markers = &marker,
             };
             const b = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 0, true) catch unreachable;
             s.start = b;
             _ = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 1, false) catch unreachable;
+            return s;
         }
 
         // returns error or a pointer to a heap allocated block
@@ -75,7 +79,7 @@ test "basic" {
     const allocator = arena.allocator();
     defer arena.deinit();
     var array = BlockStoreType().init(allocator);
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
+    _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
 }
 
 test "traverse" {
@@ -84,7 +88,7 @@ test "traverse" {
     defer arena.deinit();
     const allocator = arena.allocator();
     var array = BlockStoreType().init(allocator);
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
+    _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);

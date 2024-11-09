@@ -2,7 +2,6 @@ const std = @import("std");
 const ID = @import("doc.zig").ID;
 const Block = @import("block.zig").Block;
 const BlockStore = @import("block.zig").BlockStoreType();
-const SearchMarkers = @import("search_marker.zig").SearchMarkerType();
 const Allocator = std.mem.Allocator;
 const LOCAL_CLIENT = 1;
 
@@ -13,7 +12,6 @@ const DotCloudError = error{
 const DotCloud = struct {
     client_blocks: std.ArrayHashMap(u64, std.ArrayList(*Block)),
     block_store: BlockStore,
-    search_markers: SearchMarkers,
 
     const Self = @This();
 

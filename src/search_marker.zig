@@ -20,6 +20,7 @@ pub fn SearchMarkerType() type {
         pub fn init() Self {
             return Self{
                 .markers = undefined,
+                .curr_idx = 0,
             };
         }
 
@@ -43,8 +44,8 @@ pub fn SearchMarkerType() type {
             }
         }
 
-        fn find_closest_marker(self: *Self, pos: usize) *Marker {
-            var marker = &Marker{};
+        fn find_closest_marker(self: *Self, pos: usize) Marker {
+            var marker: Marker = undefined;
             for (self.markers) |v| {
                 if (v.pos > pos) {
                     marker = v;
@@ -54,17 +55,17 @@ pub fn SearchMarkerType() type {
             return marker;
         }
 
-        fn get_pos_block(marker: *Marker, index: usize) *Block {
-            var b = marker.item;
+        fn get_pos_block(marker: Marker, index: usize) *Block {
+            var b: ?*Block = marker.item;
             // iterate to right if possible
             while (b != null and marker.pos < index) {
-                b = b.right;
+                b = b.?.right;
             }
             // iterate to left if possible
             while (b != null and marker.pos > index) {
-                b = b.left;
+                b = b.?.left;
             }
-            return b;
+            return b.?;
         }
 
         pub fn get_curr_pos_block(self: *Self, pos: usize) *Block {
