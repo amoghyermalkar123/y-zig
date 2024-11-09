@@ -3,6 +3,7 @@ const Clock = @import("global_clock.zig").MonotonicClock;
 const Allocator = std.mem.Allocator;
 const ID = @import("doc.zig").ID;
 const SearchMarkersType = @import("search_marker.zig").SearchMarkerType;
+const Marker = @import("search_marker.zig").Marker;
 
 pub const Block = struct {
     id: ID,
@@ -35,21 +36,31 @@ pub fn BlockStoreType() type {
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator) Self {
-            var marker = SearchMarkers.init();
+        pub fn init(allocator: Allocator) anyerror!Self {
+            const al = std.ArrayList(Marker).init(std.heap.page_allocator);
+            var marker = SearchMarkers.init(al);
             var s = Self{
                 .allocator = allocator,
                 .clock = Clock.init(),
                 .markers = &marker,
             };
-            const b = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 0, true) catch unreachable;
-            s.start = b;
-            _ = s.add_block(Block.block(ID.id(s.clock.getClock(), 1), "*"), 1, false) catch unreachable;
+            const special_block_one = try s.allocator.create(Block);
+            const special_block_two = try s.allocator.create(Block);
+
+            special_block_one.* = Block.block(ID.id(s.clock.getClock(), 1), "*");
+            special_block_two.* = Block.block(ID.id(s.clock.getClock(), 1), "*");
+
+            special_block_one.*.right = special_block_two;
+            special_block_two.*.left = special_block_one;
+            try s.markers.new(0, special_block_one);
+            try s.markers.new(1, special_block_two);
+
+            s.start = special_block_one;
             return s;
         }
 
         // returns error or a pointer to a heap allocated block
-        pub fn add_block(self: *Self, block: Block, pos: usize, marker: bool) anyerror!*Block {
+        pub fn add_block(self: *Self, block: Block, pos: u64, marker: bool) anyerror!*Block {
             // allocate some space for this block on the heap
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
@@ -59,7 +70,8 @@ pub fn BlockStoreType() type {
             new_block.right = right;
             new_block.left = right.left;
             // mark this block as a search marker and store it on the search marker index
-            if (marker) self.markers.new(pos, new_block);
+            std.debug.print("new m :{any} addr: {*}\n", .{ pos, new_block });
+            if (marker) try self.markers.new(pos, new_block);
             return new_block;
         }
 
@@ -78,7 +90,7 @@ test "basic" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
     defer arena.deinit();
-    var array = BlockStoreType().init(allocator);
+    var array = try BlockStoreType().init(allocator);
     _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
 }
 
@@ -87,7 +99,7 @@ test "traverse" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    var array = BlockStoreType().init(allocator);
+    var array = try BlockStoreType().init(allocator);
     _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
