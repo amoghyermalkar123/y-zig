@@ -30,29 +30,100 @@ pub const Marker = struct {
     timestamp: i128,
 };
 
-// heap-based doubly linked list
-// append only
-pub fn AssociativeArrayType() type {
+pub const MarkerError = error{
+    NoMarkers,
+};
+
+pub fn SearchMarkerType() type {
     return struct {
-        start: ?*Block = null,
-        allocator: Allocator,
+        markers: *std.ArrayList(Marker),
+        curr_idx: u8,
+        max_cap: u8 = 10,
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator) Self {
+        pub fn init(allocator: *std.ArrayList(Marker)) Self {
             return Self{
-                .allocator = allocator,
+                .markers = allocator,
+                .curr_idx = 0,
             };
         }
 
-        pub fn add_block(self: *Self, block: Block) anyerror!void {
+        pub fn new(self: *Self, pos: usize, block: *Block) anyerror!void {
+            try self.markers.append(.{
+                .pos = pos,
+                .item = block,
+                .timestamp = std.time.milliTimestamp(),
+            });
+            self.curr_idx += 1;
+        }
+
+        // find_marker returns the best possible marker for a given position in the document
+        pub fn find_marker(self: *Self, pos: usize) ?*Block {
+            if (self.markers.items.len == 0) return null;
+
+            // set the initial element
+            var marker: Marker = self.markers.items[0];
+            for (self.markers.items) |mrk| {
+                if (pos == mrk.pos) {
+                    marker = mrk;
+                }
+            }
+
+            std.debug.print("alo", .{});
+            var b: ?*Block = marker.item;
+            const p = marker.pos;
+            // iterate to right if possible
+            while (b != null and p < pos) {
+                std.debug.print("yeeeee\n", .{});
+                b = b.?.right orelse break;
+            }
+            // iterate to left if possible
+            while (b != null and p > pos) {
+                std.debug.print("neeeee\n", .{});
+                b = b.?.left orelse break;
+            }
+
+            // TODO: from yjs - making sure the left can't be merged with
+            //
+
+            return b;
+        }
+    };
+}
+
+pub fn BlockStoreType() type {
+    const markers = SearchMarkerType();
+    return struct {
+        start: ?*Block = null,
+        allocator: Allocator,
+        marker_system: *markers,
+
+        const Self = @This();
+
+        pub fn init(allocator: Allocator, marker_system: *markers) Self {
+            return Self{
+                .allocator = allocator,
+                .marker_system = marker_system,
+            };
+        }
+
+        pub fn add_block(self: *Self, block: Block, pos: usize, marker: bool) anyerror!void {
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
+
+            if (marker) try self.marker_system.new(pos, new_block);
+
             if (self.start == null) {
                 self.start = new_block;
             } else {
                 self.start.?.right = new_block;
             }
+
+            const mrk = self.marker_system.find_marker(pos);
+            if (mrk != null) std.debug.print("mrk {any}\n----------\n", .{mrk});
+            // use the marker as the right neighbor
+            // and the marker's left as the left neighbor of new_block
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
@@ -68,23 +139,24 @@ pub fn AssociativeArrayType() type {
 test "basic" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena.allocator();
     defer arena.deinit();
-    var array = AssociativeArrayType().init(allocator);
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
-}
 
-test "traverse" {
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
-    defer arena.deinit();
-    var array = AssociativeArrayType().init(allocator);
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"));
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 0, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1"), 1, true);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2"), 2, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3"), 3, false);
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);
-
     const content = try buf.toOwnedSlice();
-    std.debug.print("Content: {s}\n", .{content});
+    std.debug.print("{s}\n", .{content});
 }
