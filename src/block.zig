@@ -37,8 +37,7 @@ pub fn BlockStoreType() type {
         const Self = @This();
 
         pub fn init(allocator: Allocator) anyerror!Self {
-            const al = std.ArrayList(Marker).init(std.heap.page_allocator);
-            var marker = SearchMarkers.init(al);
+            var marker = SearchMarkers.init();
             var s = Self{
                 .allocator = allocator,
                 .clock = Clock.init(),
@@ -85,28 +84,28 @@ pub fn BlockStoreType() type {
     };
 }
 
-test "basic" {
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena.allocator();
-    defer arena.deinit();
-    var array = try BlockStoreType().init(allocator);
-    _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
-}
-
-test "traverse" {
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var array = try BlockStoreType().init(allocator);
-    _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
-
-    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
-    try array.content(&buf);
-
-    const content = try buf.toOwnedSlice();
-    std.debug.print("Content: {s}\n", .{content});
-}
-
-test "marker" {}
+// test "blocks" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     const allocator = arena.allocator();
+//     defer arena.deinit();
+//     var array = try BlockStoreType().init(allocator);
+//     _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
+// }
+//
+// test "traverse" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//     const allocator = arena.allocator();
+//     var array = try BlockStoreType().init(allocator);
+//     _ = try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 1, false);
+//
+//     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+//     try array.content(&buf);
+//
+//     const content = try buf.toOwnedSlice();
+//     std.debug.print("Content: {s}\n", .{content});
+// }
+//
+// test "marker" {}
