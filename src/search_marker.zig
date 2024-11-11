@@ -30,41 +30,6 @@ pub const Marker = struct {
     timestamp: i128,
 };
 
-pub fn SearchMarkerType() type {
-    return struct {
-        markers: [10]Marker,
-        curr_idx: u8,
-
-        const Self = @This();
-
-        pub fn init() Self {
-            return Self{
-                .markers = undefined,
-            };
-        }
-
-        pub fn new(self: *Self, pos: usize, block: *Block) void {
-            if (self.markers.len == self.curr_idx) {
-                var oldest: i128 = 0;
-                var oldest_pos: usize = 0;
-                for (self.markers) |marker| {
-                    if (marker.timestamp < oldest) {
-                        oldest = marker.timestamp;
-                        oldest_pos = marker.pos;
-                    }
-                }
-            } else {
-                self.markers[self.curr_idx] = .{
-                    .pos = pos,
-                    .item = block,
-                    .timestamp = std.time.milliTimestamp(),
-                };
-                self.curr_idx += 1;
-            }
-        }
-    };
-}
-
 // heap-based doubly linked list
 // append only
 pub fn AssociativeArrayType() type {
