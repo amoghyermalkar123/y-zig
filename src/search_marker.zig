@@ -75,12 +75,12 @@ pub fn SearchMarkerType() type {
             const p = marker.pos;
             // iterate to right if possible
             while (b != null and p < pos) {
-                std.debug.print("yeeeee\n", .{});
+                std.debug.print("going right {s}\n", .{b.?.content});
                 b = b.?.right orelse break;
             }
             // iterate to left if possible
             while (b != null and p > pos) {
-                std.debug.print("neeeee\n", .{});
+                std.debug.print("going left {s}\n", .{b.?.content});
                 b = b.?.left orelse break;
             }
 
@@ -96,6 +96,7 @@ pub fn BlockStoreType() type {
     const markers = SearchMarkerType();
     return struct {
         start: ?*Block = null,
+        curr: ?*Block = null,
         allocator: Allocator,
         marker_system: *markers,
 
@@ -117,13 +118,16 @@ pub fn BlockStoreType() type {
             if (self.start == null) {
                 self.start = new_block;
             } else {
-                self.start.?.right = new_block;
+                if (self.curr == null) {
+                    new_block.left = self.start.?;
+                    self.start.?.right = new_block;
+                    self.curr = new_block;
+                } else {
+                    self.curr.?.right = new_block;
+                    new_block.left = self.curr.?;
+                    self.curr.? = new_block;
+                }
             }
-
-            const mrk = self.marker_system.find_marker(pos);
-            if (mrk != null) std.debug.print("mrk {any}\n----------\n", .{mrk});
-            // use the marker as the right neighbor
-            // and the marker's left as the left neighbor of new_block
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
@@ -147,13 +151,15 @@ test "basic" {
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum"), 0, false);
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum "), 0, false);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1"), 1, true);
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1 "), 1, false);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2"), 2, false);
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2 "), 2, true);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3"), 3, false);
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3 "), 3, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 4"), 3, false);
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);
