@@ -22,6 +22,10 @@ pub const Block = struct {
             .content = text,
         };
     }
+
+    // split a block into multiple which have the same client id
+    // with left and right neighbors adjusted
+    pub fn split_block(self: *Self, pos: usize) []Block {}
 };
 
 pub const Marker = struct {
@@ -59,10 +63,9 @@ pub fn SearchMarkerType() type {
         }
 
         // find_marker returns the best possible marker for a given position in the document
-        pub fn find_marker(self: *Self, pos: usize) ?*Block {
+        pub fn find_block(self: *Self, pos: usize, length: usize) anyerror!?Marker {
             if (self.markers.items.len == 0) return null;
 
-            // set the initial element
             var marker: Marker = self.markers.items[0];
             for (self.markers.items) |mrk| {
                 if (pos == mrk.pos) {
@@ -70,24 +73,24 @@ pub fn SearchMarkerType() type {
                 }
             }
 
-            std.debug.print("alo", .{});
             var b: ?*Block = marker.item;
-            const p = marker.pos;
-            // iterate to right if possible
+            var p = marker.pos;
+
             while (b != null and p < pos) {
-                std.debug.print("going right {s}\n", .{b.?.content});
                 b = b.?.right orelse break;
+                p += length;
             }
-            // iterate to left if possible
+
             while (b != null and p > pos) {
-                std.debug.print("going left {s}\n", .{b.?.content});
                 b = b.?.left orelse break;
+                p -= length;
             }
 
             // TODO: from yjs - making sure the left can't be merged with
-            //
-
-            return b;
+            // TODO: update existing marker upon reaching limit
+            const final = Marker{ .pos = p, .item = b.?, .timestamp = std.time.milliTimestamp() };
+            try self.markers.append(final);
+            return final;
         }
     };
 }
@@ -109,12 +112,16 @@ pub fn BlockStoreType() type {
             };
         }
 
-        pub fn add_block(self: *Self, block: Block, pos: usize, marker: bool) anyerror!void {
+        pub fn add_block(self: *Self, block: Block, pos: usize) anyerror!void {
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
 
-            if (marker) try self.marker_system.new(pos, new_block);
+            var m = try self.marker_system.find_block(pos, block.content.len);
+            // TODO: check if the marker pos is equal to the pos the user wants to insert into
+            // if not, split block and continue
 
+            // adjusting the new blocks left and right neighbors
+            // TODO: use split blocks as neighbors for new_block
             if (self.start == null) {
                 self.start = new_block;
             } else {
@@ -140,7 +147,7 @@ pub fn BlockStoreType() type {
     };
 }
 
-test "basic" {
+test "localInsert" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -164,5 +171,31 @@ test "basic" {
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
-    std.debug.print("{s}\n", .{content});
+
+    try std.testing.expectEqualSlices(u8, content, "Lorem Ipsum Lorem Ipsum 1 Lorem Ipsum 2 Lorem Ipsum 3 Lorem Ipsum 4");
+}
+
+test "searchMarkers" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum "), 0, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1 "), 1, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2 "), 2, true);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3 "), 3, false);
+
+    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 4"), 4, false);
+
+    const marker = try marker_system.find_block(3, 6);
+    std.debug.print("got marker: {s}", .{marker.?.item.content});
 }
