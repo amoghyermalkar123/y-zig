@@ -121,15 +121,15 @@ pub fn BlockStoreType() type {
 
             try bufal.append(m.item.content[0..split_point]);
             const text = try bufal.toOwnedSlice();
-            var t = Block.block(block.id, text);
+            const temp = Block.block(block.id, text);
 
             try bufal.append(m.item.content[split_point..]);
-            const text = try bufal.toOwnedSlice();
+            text = try bufal.toOwnedSlice();
             // TODO: new id for the right side of the split block
-            var b = Block.block(ID.id(), text);
+            const b = Block.block(ID.id(), text);
 
             const split_one = try self.allocator.create(Block);
-            split_one.* = t;
+            split_one.* = temp;
 
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
