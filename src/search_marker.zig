@@ -22,10 +22,6 @@ pub const Block = struct {
             .content = text,
         };
     }
-
-    // split a block into multiple which have the same client id
-    // with left and right neighbors adjusted
-    pub fn split_block(self: *Self, pos: usize) []Block {}
 };
 
 pub const Marker = struct {
@@ -63,7 +59,7 @@ pub fn SearchMarkerType() type {
         }
 
         // find_marker returns the best possible marker for a given position in the document
-        pub fn find_block(self: *Self, pos: usize, length: usize) anyerror!?Marker {
+        pub fn find_block(self: *Self, pos: usize) anyerror!Marker {
             if (self.markers.items.len == 0) return null;
 
             var marker: Marker = self.markers.items[0];
@@ -74,16 +70,19 @@ pub fn SearchMarkerType() type {
             }
 
             var b: ?*Block = marker.item;
+            // this will always point at the start of some block
+            // because we traverse block by block and increment this
+            // offset by the traversed block's content length
             var p = marker.pos;
 
             while (b != null and p < pos) {
                 b = b.?.right orelse break;
-                p += length;
+                p += b.?.content.len;
             }
 
             while (b != null and p > pos) {
                 b = b.?.left orelse break;
-                p -= length;
+                p -= b.?.content.len;
             }
 
             // TODO: from yjs - making sure the left can't be merged with
@@ -112,14 +111,44 @@ pub fn BlockStoreType() type {
             };
         }
 
-        pub fn add_block(self: *Self, block: Block, pos: usize) anyerror!void {
+        fn split_and_add_block(self: *Self, m: Marker, block: Block, index: usize) anyerror!void {
+            // split a block into multiple which have the same client id
+            // with left and right neighbors adjusted
+            const split_point = m.pos + m.item.content.len - index;
+
+            var bufal = std.ArrayList(u8).init(self.allocator);
+            defer bufal.deinit();
+
+            try bufal.append(m.item.content[0..split_point]);
+            const text = try bufal.toOwnedSlice();
+            var t = Block.block(block.id, text);
+
+            try bufal.append(m.item.content[split_point..]);
+            const text = try bufal.toOwnedSlice();
+            // TODO: new id for the right side of the split block
+            var b = Block.block(ID.id(), text);
+
+            const split_one = try self.allocator.create(Block);
+            split_one.* = t;
+
             const new_block = try self.allocator.create(Block);
             new_block.* = block;
 
-            var m = try self.marker_system.find_block(pos, block.content.len);
-            // TODO: check if the marker pos is equal to the pos the user wants to insert into
-            // if not, split block and continue
+            const split_two = try self.allocator.create(Block);
+            split_two.* = b;
 
+            split_one.*.right = new_block;
+            new_block.*.left = split_one;
+            new_block.*.right = split_two;
+            split_two.*.left = new_block;
+        }
+
+        // TODO: clocks should be assigned by block store
+        pub fn add_block(self: *Self, block: Block, index: usize) anyerror!void {
+            const new_block = try self.allocator.create(Block);
+            new_block.* = block;
+            const m = try self.marker_system.find_block(index, block.content.len);
+            if (index != m.pos) try self.split_and_add_block(m, block, index);
             // adjusting the new blocks left and right neighbors
             // TODO: use split blocks as neighbors for new_block
             if (self.start == null) {
@@ -147,6 +176,8 @@ pub fn BlockStoreType() type {
     };
 }
 
+const t = std.testing;
+
 test "localInsert" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -172,7 +203,7 @@ test "localInsert" {
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
 
-    try std.testing.expectEqualSlices(u8, content, "Lorem Ipsum Lorem Ipsum 1 Lorem Ipsum 2 Lorem Ipsum 3 Lorem Ipsum 4");
+    try t.expectEqualSlices(u8, content, "Lorem Ipsum Lorem Ipsum 1 Lorem Ipsum 2 Lorem Ipsum 3 Lorem Ipsum 4");
 }
 
 test "searchMarkers" {
