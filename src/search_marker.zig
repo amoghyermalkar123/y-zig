@@ -60,12 +60,13 @@ pub fn SearchMarkerType() type {
 
         // find_marker returns the best possible marker for a given position in the document
         pub fn find_block(self: *Self, pos: usize) anyerror!Marker {
-            if (self.markers.items.len == 0) return null;
+            if (self.markers.items.len == 0) return MarkerError.NoMarkers;
 
             var marker: Marker = self.markers.items[0];
             for (self.markers.items) |mrk| {
                 if (pos == mrk.pos) {
                     marker = mrk;
+                    return marker;
                 }
             }
 
@@ -101,56 +102,66 @@ pub fn BlockStoreType() type {
         curr: ?*Block = null,
         allocator: Allocator,
         marker_system: *markers,
+        monotonic_clock: *Clock,
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, marker_system: *markers) Self {
+        pub fn init(allocator: Allocator, marker_system: *markers, clock: *Clock) Self {
             return Self{
                 .allocator = allocator,
                 .marker_system = marker_system,
+                .monotonic_clock = clock,
             };
         }
 
-        fn split_and_add_block(self: *Self, m: Marker, block: Block, index: usize) anyerror!void {
+        // this function should only be called in certain scenarios when a block actually requires
+        // splitting, the caller needs to have all checks in place before calling this function
+        // we dont want to split weirdly
+        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
             // split a block into multiple which have the same client id
             // with left and right neighbors adjusted
+            std.debug.print("{d}.{d}.{d}\n", .{ m.pos, m.item.content.len, index });
             const split_point = m.pos + m.item.content.len - index;
 
             var bufal = std.ArrayList(u8).init(self.allocator);
-            defer bufal.deinit();
+            errdefer bufal.deinit();
 
-            try bufal.append(m.item.content[0..split_point]);
+            try bufal.appendSlice(m.item.content[0..split_point]);
+            const textl = try bufal.toOwnedSlice();
+            const left = Block.block(new_block.id, textl);
+
+            try bufal.appendSlice(m.item.content[split_point..]);
             const text = try bufal.toOwnedSlice();
-            const temp = Block.block(block.id, text);
+            const right = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
 
-            try bufal.append(m.item.content[split_point..]);
-            text = try bufal.toOwnedSlice();
-            // TODO: new id for the right side of the split block
-            const b = Block.block(ID.id(), text);
+            const left_ptr = try self.allocator.create(Block);
+            left_ptr.* = left;
 
-            const split_one = try self.allocator.create(Block);
-            split_one.* = temp;
+            const right_ptr = try self.allocator.create(Block);
+            right_ptr.* = right;
 
-            const new_block = try self.allocator.create(Block);
-            new_block.* = block;
-
-            const split_two = try self.allocator.create(Block);
-            split_two.* = b;
-
-            split_one.*.right = new_block;
-            new_block.*.left = split_one;
-            new_block.*.right = split_two;
-            split_two.*.left = new_block;
+            left_ptr.*.right = new_block;
+            new_block.*.left = left_ptr;
+            new_block.*.right = right_ptr;
+            right_ptr.*.left = new_block;
         }
 
         // TODO: clocks should be assigned by block store
-        pub fn add_block(self: *Self, block: Block, index: usize) anyerror!void {
+        pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             const new_block = try self.allocator.create(Block);
-            new_block.* = block;
-            const m = try self.marker_system.find_block(index, block.content.len);
-            if (index != m.pos) try self.split_and_add_block(m, block, index);
+            new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
+
+            // TODO: find_block should give you the closest approximation block
+            // in other words the exact block which can either be the neighbor of new_block
+            // or will be split into new blocks (if required) for them to be neighbors
+            // of new_block, revisit the and test find_block
+            const m = self.marker_system.find_block(index) catch |err| switch (err) {
+                MarkerError.NoMarkers => return try self.marker_system.new(index, new_block),
+                else => unreachable,
+            };
             // adjusting the new blocks left and right neighbors
-            // TODO: use split blocks as neighbors for new_block
+            if (index != m.pos) try self.split_and_add_block(m, new_block, index);
+
             if (self.start == null) {
                 self.start = new_block;
             } else {
@@ -187,17 +198,17 @@ test "localInsert" {
 
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
-    var array = BlockStoreType().init(allocator, &marker_system);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum "), 0, false);
+    try array.insert_text(0, "A");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1 "), 1, false);
+    try array.insert_text(1, "B");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2 "), 2, true);
+    try array.insert_text(2, "C");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3 "), 3, false);
+    try array.insert_text(3, "D");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 4"), 3, false);
+    try array.insert_text(4, "E");
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);
@@ -215,18 +226,18 @@ test "searchMarkers" {
 
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
-    var array = BlockStoreType().init(allocator, &marker_system);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum "), 0, false);
+    try array.insert_text(0, "A");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 1 "), 1, false);
+    try array.insert_text(1, "B");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 2 "), 2, true);
+    try array.insert_text(2, "C");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 3 "), 3, false);
+    try array.insert_text(3, "D");
 
-    try array.add_block(Block.block(ID.id(clk.getClock(), 1), "Lorem Ipsum 4"), 4, false);
+    try array.insert_text(4, "E");
 
-    const marker = try marker_system.find_block(3, 6);
-    std.debug.print("got marker: {s}", .{marker.?.item.content});
+    const marker = try marker_system.find_block(3);
+    std.debug.print("got marker: {s}", .{marker.item.content});
 }
