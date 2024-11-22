@@ -24,6 +24,10 @@ pub const Block = struct {
     }
 };
 
+// TODO: Marker positions should ALWAYS point to the start of a block
+// which holds a bigger content i.e. if a content in a block is 8 length
+// and it's the second block at position 2, the marker should point to 2
+// and this should follow along during block splitting as well.
 pub const Marker = struct {
     item: *Block,
     pos: usize,
@@ -56,6 +60,15 @@ pub fn SearchMarkerType() type {
                 .timestamp = std.time.milliTimestamp(),
             });
             self.curr_idx += 1;
+        }
+
+        // TODO: this should eventuall update all existing markers with every update that
+        // happens in the document, right now it de-allocates all markers and keeps only one
+        // for simplicity
+        pub fn overwrite(self: *Self, pos: usize, block: *Block) anyerror!void {
+            self.markers.deinit();
+            self.curr_idx = 0;
+            try self.new(pos, block);
         }
 
         // find_marker returns the best possible marker for a given position in the document
@@ -140,6 +153,10 @@ pub fn BlockStoreType() type {
             const right_ptr = try self.allocator.create(Block);
             right_ptr.* = right;
 
+            self.allocator.destroy(m.item);
+
+            try self.marker_system.overwrite(split_point, left_ptr);
+
             left_ptr.*.right = new_block;
             new_block.*.left = left_ptr;
             new_block.*.right = right_ptr;
@@ -151,16 +168,20 @@ pub fn BlockStoreType() type {
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
 
+            @breakpoint();
             // TODO: find_block should give you the closest approximation block
             // in other words the exact block which can either be the neighbor of new_block
-            // or will be split into new blocks (if required) for them to be neighbors
+            // or will be split into new blocks (if required for them to be neighbors
             // of new_block, revisit the and test find_block
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => return try self.marker_system.new(index, new_block),
                 else => unreachable,
             };
             // adjusting the new blocks left and right neighbors
-            if (index != m.pos) try self.split_and_add_block(m, new_block, index);
+            if (index != m.pos and m.item.content.len > 1) {
+                try self.split_and_add_block(m, new_block, index);
+                return;
+            }
 
             if (self.start == null) {
                 self.start = new_block;
@@ -209,12 +230,13 @@ test "localInsert" {
     try array.insert_text(3, "D");
 
     try array.insert_text(4, "E");
+    try array.insert_text(5, "F");
 
     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
 
-    try t.expectEqualSlices(u8, content, "Lorem Ipsum Lorem Ipsum 1 Lorem Ipsum 2 Lorem Ipsum 3 Lorem Ipsum 4");
+    try t.expectEqualSlices(u8, "ABCDEF", content);
 }
 
 test "searchMarkers" {
