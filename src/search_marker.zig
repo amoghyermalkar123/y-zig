@@ -113,6 +113,7 @@ pub fn BlockStoreType() type {
     return struct {
         start: ?*Block = null,
         curr: ?*Block = null,
+        length: usize = 0,
         allocator: Allocator,
         marker_system: *markers,
         monotonic_clock: *Clock,
@@ -163,38 +164,39 @@ pub fn BlockStoreType() type {
             right_ptr.*.left = new_block;
         }
 
-        // TODO: clocks should be assigned by block store
+        // TODO: support multi-character inputs
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
+            // allocate memory for new block
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
 
-            @breakpoint();
-            // TODO: find_block should give you the closest approximation block
-            // in other words the exact block which can either be the neighbor of new_block
-            // or will be split into new blocks (if required for them to be neighbors
-            // of new_block, revisit the and test find_block
+            // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => return try self.marker_system.new(index, new_block),
                 else => unreachable,
             };
-            // adjusting the new blocks left and right neighbors
-            if (index != m.pos and m.item.content.len > 1) {
-                try self.split_and_add_block(m, new_block, index);
-                return;
-            }
 
-            if (self.start == null) {
+            // attach left and right neighbors
+            if (index < self.length) {
+                // add items in the middle of the list
+                // the marker system will find us exactly where this block needs to be added
+                new_block.left = m.item;
+                new_block.right = m.item.right;
+                m.item.right = new_block;
+                m.item.right.?.left = new_block;
+            } else if (self.start == null) {
+                // add first item
                 self.start = new_block;
+            } else if (self.curr == null) {
+                // add second item
+                new_block.left = self.start.?;
+                self.start.?.right = new_block;
+                self.curr = new_block;
             } else {
-                if (self.curr == null) {
-                    new_block.left = self.start.?;
-                    self.start.?.right = new_block;
-                    self.curr = new_block;
-                } else {
-                    self.curr.?.right = new_block;
-                    new_block.left = self.curr.?;
-                    self.curr.? = new_block;
-                }
+                // add items that are appended
+                self.curr.?.right = new_block;
+                new_block.left = self.curr.?;
+                self.curr.? = new_block;
             }
         }
 
