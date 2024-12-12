@@ -181,24 +181,20 @@ pub fn BlockStoreType() type {
             if (index < self.length) {
                 // add items in the middle of the list
                 // the marker system will find us exactly where this block needs to be added
-                new_block.left = m.item;
-                new_block.right = m.item.right;
-                m.item.right = new_block;
-                m.item.right.?.left = new_block;
+                new_block.left = m.item.left;
+                new_block.right = m.item;
+                new_block.left.?.right = new_block;
+                m.item.left = new_block;
             } else if (self.start == null) {
                 // add first item
                 self.start = new_block;
-            } else if (self.curr == null) {
-                // add second item
-                new_block.left = self.start.?;
-                self.start.?.right = new_block;
-                self.curr = new_block;
             } else {
                 // add items that are appended
-                self.curr.?.right = new_block;
-                new_block.left = self.curr.?;
-                self.curr.? = new_block;
+                m.item.right = new_block;
+                new_block.left = m.item;
             }
+
+            self.length += text.len;
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
@@ -241,28 +237,58 @@ test "localInsert" {
 
     try t.expectEqualSlices(u8, "ABCDEF", content);
 }
-//
-// test "searchMarkers" {
-//     var clk = Clock.init();
-//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-//     defer arena.deinit();
-//
-//     const allocator = arena.allocator();
-//
-//     var marker_list = std.ArrayList(Marker).init(allocator);
-//     var marker_system = SearchMarkerType().init(&marker_list);
-//     var array = BlockStoreType().init(allocator, &marker_system, &clk);
-//
-//     try array.insert_text(0, "A");
-//
-//     try array.insert_text(1, "B");
-//
-//     try array.insert_text(2, "C");
-//
-//     try array.insert_text(3, "D");
-//
-//     try array.insert_text(4, "E");
-//
-//     const marker = try marker_system.find_block(3);
-//     std.debug.print("got marker: {s}", .{marker.item.content});
-// }
+
+test "localInsert between" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    try array.insert_text(0, "A");
+
+    try array.insert_text(1, "B");
+
+    try array.insert_text(1, "C");
+
+    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    try array.content(&buf);
+    const content = try buf.toOwnedSlice();
+
+    try t.expectEqualSlices(u8, "ACB", content);
+}
+
+test "searchMarkers" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    try array.insert_text(0, "A");
+
+    try array.insert_text(1, "B");
+
+    try array.insert_text(2, "C");
+
+    try array.insert_text(3, "D");
+
+    try array.insert_text(4, "E");
+
+    var marker = try marker_system.find_block(0);
+    try t.expectEqualStrings("A", marker.item.content);
+
+    marker = try marker_system.find_block(3);
+    try t.expectEqualStrings("D", marker.item.content);
+
+    marker = try marker_system.find_block(59);
+    try t.expectEqualStrings("E", marker.item.content);
+}
