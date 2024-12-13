@@ -215,6 +215,35 @@ pub fn BlockStoreType() type {
                 next = next.?.right orelse break;
             }
         }
+
+        // caller should take care of adding the block to the respective dot cloud
+        pub fn integrate(self: *Self, block: *Block) anyerror!void {
+            var isConflict = false;
+            if (!block.left and !block.right) {
+                isConflict = true;
+            } else if (!block.left and block.right) {
+                const r = block.right.?;
+                if (r.left != null) {
+                    isConflict = true;
+                }
+            } else if (block.left) {
+                if (block.left.?.right != block.right) {
+                    isConflict = true;
+                }
+            } else unreachable;
+
+            if (isConflict) {
+                // set the left pointer, this is used across the conflict resolution loop to figure out the new neighbors
+                // for ' block'
+                var left = block.left;
+                // set first conflicting item as start element of the document by default
+                var o: *Block = self.start orelse unreachable;
+                // if we have a left neighbor, set that as the first conflicting item
+                if (left) {
+                    o = left.?.right;
+                }
+            }
+        }
     };
 }
 
