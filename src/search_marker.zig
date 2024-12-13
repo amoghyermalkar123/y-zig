@@ -1,8 +1,19 @@
 const std = @import("std");
-const ID = @import("doc.zig").ID;
 const Clock = @import("global_clock.zig").MonotonicClock;
 
 const Allocator = std.mem.Allocator;
+
+pub const ID = struct {
+    clock: u64,
+    client: u64,
+
+    pub fn id(clock: u64, client: u64) ID {
+        return ID{
+            .clock = clock,
+            .client = client,
+        };
+    }
+};
 
 pub const Block = struct {
     id: ID,
