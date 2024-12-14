@@ -1,5 +1,6 @@
 const std = @import("std");
 const Clock = @import("global_clock.zig").MonotonicClock;
+const Set = @import("ziglangSet");
 
 const Allocator = std.mem.Allocator;
 
@@ -241,6 +242,30 @@ pub fn BlockStoreType() type {
                 // if we have a left neighbor, set that as the first conflicting item
                 if (left) {
                     o = left.?.right;
+                }
+
+                // now the first conflicting item has been set
+                // let's move on to the conflict resolution loop
+
+                var conflicting_items = Set.Set(Block).init(self.allocator);
+                defer conflicting_items.deinit();
+
+                var items_before_origin = Set.Set(Block).init(self.allocator);
+                defer items_before_origin.deinit();
+
+                // conflict res loop starts
+                while (o != null and o != block.right) {
+                    items_before_origin.add(o.*);
+                    conflicting_items.add(o.*);
+
+                    if (o.left_origin == block.left_origin or (o != null and block != null and o.id.client == block.id.client and o.id.clock == block.id.clock)) {
+                        if (o.id.client < block.id.client) {
+                            left = o;
+                            conflicting_items.clearAndFree();
+                        } else if (o.right_origin == block.right_origin or (o != null and block != null and o.id.client == block.id.client and o.id.clock == block.id.clock)) {
+                            break;
+                        } //TODO: get the actual block from block store from origin id
+                    } else if (o.left_origin != null and items_before_origin.contains()) {} else {}
                 }
             }
         }
