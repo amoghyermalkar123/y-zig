@@ -141,6 +141,14 @@ pub fn BlockStoreType() type {
             };
         }
 
+        pub fn get_block_by_id(self: Self, id: ID) ?Block {
+            var next = self.start;
+            while (next) {
+                if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next;
+                next = next.?.right;
+            }
+        }
+
         // this function should only be called in certain scenarios when a block actually requires
         // splitting, the caller needs to have all checks in place before calling this function
         // we dont want to split weirdly
@@ -218,7 +226,10 @@ pub fn BlockStoreType() type {
         }
 
         // caller should take care of adding the block to the respective dot cloud
+        // TODO: assert origins exist for the block before executing anything in this function
         pub fn integrate(self: *Self, block: *Block) anyerror!void {
+            std.debug.assert(block.left_origin != null and block.right_origin != null);
+
             var isConflict = false;
             if (!block.left and !block.right) {
                 isConflict = true;
@@ -238,10 +249,12 @@ pub fn BlockStoreType() type {
                 // for ' block'
                 var left = block.left;
                 // set first conflicting item as start element of the document by default
-                var o: *Block = self.start orelse unreachable;
+                var o: ?*Block = null;
                 // if we have a left neighbor, set that as the first conflicting item
                 if (left) {
                     o = left.?.right;
+                } else {
+                    o = self.start orelse unreachable;
                 }
 
                 // now the first conflicting item has been set
@@ -254,25 +267,45 @@ pub fn BlockStoreType() type {
                 defer items_before_origin.deinit();
 
                 // conflict res loop starts
-                while (o != null and o != block.right) {
-                    items_before_origin.add(o.*);
-                    conflicting_items.add(o.*);
+                while (o != null and o.? != block.right) {
+                    items_before_origin.add(o.?.*);
+                    conflicting_items.add(o.?.*);
 
-                    if (o.left_origin == block.left_origin or (o != null and block != null and o.id.client == block.id.client and o.id.clock == block.id.clock)) {
-                        if (o.id.client < block.id.client) {
-                            left = o;
+                    if (o.left_origin == block.left_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
+                        if (o.?.id.client < block.id.client) {
+                            left = o.?;
                             conflicting_items.clearAndFree();
-                        } else if (o.right_origin == block.right_origin or (o != null and block != null and o.id.client == block.id.client and o.id.clock == block.id.clock)) {
+                        } else if (o.?.right_origin == block.right_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
                             break;
-                        } //TODO: get the actual block from block store from origin id
-                    } else if (o.left_origin != null and items_before_origin.contains()) {} else {}
+                        }
+                    } else if (o.?.left_origin != null and items_before_origin.contains(self.get_block_by_id(o.?.left_origin.?))) {
+                        if (!conflicting_items.contains(self.get_block_by_id(o.?.left_origin.?))) {
+                            left = o.?;
+                            conflicting_items.clearAndFree();
+                        }
+                    } else {
+                        // we might have found our left
+                        break;
+                    }
+                    o = o.?.right;
                 }
+                block.left = left;
             }
+
+            // conflict resolved by this point and the left neighbor for the new block is set
+            // now we adjust for the right neighbor and exit the flow
+
+            // for now just print the conflict resolved neighbors
+            std.debug.print("conflict resolved left neighbor: id:{any} content: {s} \n", .{ block.left.?.id, block.left.?.content });
         }
     };
 }
 
 const t = std.testing;
+
+test "integrate - append should work" {}
+test "integrate - adding in the middle should work" {}
+test "integrate - adding at the start should work" {}
 
 test "localInsert" {
     var clk = Clock.init();
