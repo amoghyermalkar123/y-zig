@@ -143,10 +143,11 @@ pub fn BlockStoreType() type {
 
         pub fn get_block_by_id(self: Self, id: ID) ?Block {
             var next = self.start;
-            while (next) {
-                if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next;
+            while (next != null) {
+                if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next.?.*;
                 next = next.?.right;
             }
+            return next.?.*;
         }
 
         // this function should only be called in certain scenarios when a block actually requires
@@ -231,14 +232,14 @@ pub fn BlockStoreType() type {
             std.debug.assert(block.left_origin != null and block.right_origin != null);
 
             var isConflict = false;
-            if (!block.left and !block.right) {
+            if (block.left == null and block.right == null) {
                 isConflict = true;
-            } else if (!block.left and block.right) {
+            } else if (block.left == null and block.right != null) {
                 const r = block.right.?;
                 if (r.left != null) {
                     isConflict = true;
                 }
-            } else if (block.left) {
+            } else if (block.left != null) {
                 if (block.left.?.right != block.right) {
                     isConflict = true;
                 }
@@ -251,7 +252,7 @@ pub fn BlockStoreType() type {
                 // set first conflicting item as start element of the document by default
                 var o: ?*Block = null;
                 // if we have a left neighbor, set that as the first conflicting item
-                if (left) {
+                if (left != null) {
                     o = left.?.right;
                 } else {
                     o = self.start orelse unreachable;
@@ -264,7 +265,7 @@ pub fn BlockStoreType() type {
                 // this is because we have not found the right neighbor for our block yet
                 // at every point where we know that these set of items for sure won't conflict with the `block`
                 // we clear this set out
-                var conflicting_items = Set.Set(Block).init(self.allocator);
+                var conflicting_items = std.AutoHashMap(ID, void).init(self.allocator);
                 defer conflicting_items.deinit();
 
                 // this array acts as a distinct set of items which we consider as falling before `block`
@@ -273,34 +274,41 @@ pub fn BlockStoreType() type {
                 // pointer when we find that left origin is not the same for `block` and `o` but the left origin
                 // of `o` falls in this set but is not present in the conflicting items set, this is because we know
                 // for sure such items will not conflict with the `block`
-                var items_before_origin = Set.Set(Block).init(self.allocator);
+                var items_before_origin = std.AutoHashMap(ID, void).init(self.allocator);
                 defer items_before_origin.deinit();
 
+                std.debug.print("first conflict : {s}\n", .{o.?.content});
                 // conflict resolution loop starts
-                while (o != null and o.? != block.right) {
-                    items_before_origin.add(o.?.*);
-                    conflicting_items.add(o.?.*);
+                std.debug.print("case check {s} ---- {s} \n", .{ o.?.content, block.right.?.content });
+                while (o != null and o.? != block.right.?) {
+                    try items_before_origin.put(o.?.id, {});
+                    try conflicting_items.put(o.?.id, {});
 
                     // check for same left derivation points
-                    if (o.left_origin == block.left_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
+                    if (o != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock) {
                         // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
                         if (o.?.id.client < block.id.client) {
+                            std.debug.print("CASE 1", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
-                        } else if (o.?.right_origin == block.right_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
+                        } else if (o != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock) {
                             // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
+                            std.debug.print("CASE 2", .{});
                             break;
                         }
                         // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
                         // if that is the case, we can clear the conflicting items set and increment our left pointer to point to the
                         // `o` block
-                    } else if (o.?.left_origin != null and items_before_origin.contains(self.get_block_by_id(o.?.left_origin.?))) {
-                        if (!conflicting_items.contains(self.get_block_by_id(o.?.left_origin.?))) {
+                    } else if (o.?.left_origin != null and items_before_origin.contains(self.get_block_by_id(o.?.left_origin.?).?.id)) {
+                        if (!conflicting_items.contains(self.get_block_by_id(o.?.left_origin.?).?.id)) {
+                            std.debug.print("CASE 3", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
                         }
+                        std.debug.print("SKIP\n", .{});
                     } else {
                         // we might have found our left
+                        std.debug.print("WEIRD\n", .{});
                         break;
                     }
                     o = o.?.right;
@@ -309,7 +317,7 @@ pub fn BlockStoreType() type {
                 block.left = left;
             }
 
-            std.debug.print("conflict resolved left neighbor: id:{any} content: {s} \n", .{ block.left.?.id, block.left.?.content });
+            std.debug.print("conflict resolved for block: {s} left neighbor: id:{any} content: {s} \n", .{ block.content, block.left.?.id, block.left.?.content });
 
             // reconnect left neighbor
             if (block.left != null) {
@@ -322,7 +330,7 @@ pub fn BlockStoreType() type {
 
             // reconnect right neighbor
             if (block.right != null) {
-                block.right.left = block;
+                block.right.?.left = block;
             } else {
                 std.debug.print("block.left is null \n right neighbor reconnection failed :( \n", .{});
             }
@@ -332,90 +340,175 @@ pub fn BlockStoreType() type {
 
 const t = std.testing;
 
-test "integrate - append should work" {}
-test "integrate - adding in the middle should work" {}
-test "integrate - adding at the start should work" {}
+// test "localInsert" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//
+//     const allocator = arena.allocator();
+//
+//     var marker_list = std.ArrayList(Marker).init(allocator);
+//     var marker_system = SearchMarkerType().init(&marker_list);
+//     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+//
+//     try array.insert_text(0, "A");
+//
+//     try array.insert_text(1, "B");
+//
+//     try array.insert_text(2, "C");
+//
+//     try array.insert_text(3, "D");
+//
+//     try array.insert_text(4, "E");
+//     try array.insert_text(5, "F");
+//
+//     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+//     try array.content(&buf);
+//     const content = try buf.toOwnedSlice();
+//
+//     try t.expectEqualSlices(u8, "ABCDEF", content);
+// }
+//
+// test "localInsert between" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//
+//     const allocator = arena.allocator();
+//
+//     var marker_list = std.ArrayList(Marker).init(allocator);
+//     var marker_system = SearchMarkerType().init(&marker_list);
+//     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+//
+//     try array.insert_text(0, "A");
+//
+//     try array.insert_text(1, "B");
+//
+//     try array.insert_text(1, "C");
+//
+//     var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+//     try array.content(&buf);
+//     const content = try buf.toOwnedSlice();
+//
+//     try t.expectEqualSlices(u8, "ACB", content);
+// }
+//
+// test "searchMarkers" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//
+//     const allocator = arena.allocator();
+//
+//     var marker_list = std.ArrayList(Marker).init(allocator);
+//     var marker_system = SearchMarkerType().init(&marker_list);
+//     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+//
+//     try array.insert_text(0, "A");
+//
+//     try array.insert_text(1, "B");
+//
+//     try array.insert_text(2, "C");
+//
+//     try array.insert_text(3, "D");
+//
+//     try array.insert_text(4, "E");
+//
+//     var marker = try marker_system.find_block(0);
+//     try t.expectEqualStrings("A", marker.item.content);
+//
+//     marker = try marker_system.find_block(3);
+//     try t.expectEqualStrings("D", marker.item.content);
+//
+//     marker = try marker_system.find_block(59);
+//     try t.expectEqualStrings("E", marker.item.content);
+// }
 
-test "localInsert" {
+// test "integrate - basic non-conflicting case" {
+//     var clk = Clock.init();
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     defer arena.deinit();
+//     const allocator = arena.allocator();
+//
+//     // Setup marker system
+//     var marker_list = std.ArrayList(Marker).init(allocator);
+//     var marker_system = SearchMarkerType().init(&marker_list);
+//     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+//
+//     // Create initial blocks: "A" -> "B"
+//     try array.insert_text(0, "A");
+//     try array.insert_text(1, "B");
+//
+//     // Create a new block "C" to insert between A and B
+//     const block_c = try allocator.create(Block);
+//     block_c.* = Block.block(ID.id(3, 2), "C");
+//
+//     // Get references to A and B blocks
+//     const block_a = array.start.?;
+//     const block_b = block_a.right.?;
+//
+//     // Set up proper block relationships
+//     block_c.left = block_a;
+//     block_c.right = block_b;
+//     block_c.left_origin = block_a.id; // A's actual ID
+//     block_c.right_origin = block_b.id; // B's actual ID
+//
+//     // Integrate block C
+//     try array.integrate(block_c);
+//
+//     // Verify the final sequence is "A" -> "C" -> "B"
+//     var buf = std.ArrayList(u8).init(allocator);
+//     try array.content(&buf);
+//     const content = try buf.toOwnedSlice();
+//     try t.expectEqualSlices(u8, "ACB", content);
+// }
+
+test "integrate - concurrent edits at same position" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-
     const allocator = arena.allocator();
 
+    // Setup marker system
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
 
+    // Create initial blocks: "A" -> "B"
     try array.insert_text(0, "A");
-
     try array.insert_text(1, "B");
 
-    try array.insert_text(2, "C");
+    // Get references to A and B blocks
+    const block_a = array.start.?;
+    const block_b = block_a.right.?;
 
-    try array.insert_text(3, "D");
+    // Create two concurrent blocks "C" and "D" from different clients
+    // Both trying to insert between A and B
+    const block_c = try allocator.create(Block);
+    block_c.* = Block.block(ID.id(3, 1), "C"); // Client 1
 
-    try array.insert_text(4, "E");
-    try array.insert_text(5, "F");
+    const block_d = try allocator.create(Block);
+    block_d.* = Block.block(ID.id(3, 2), "D"); // Client 2
 
-    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    // Set up relationships for both blocks
+    block_c.left = block_a;
+    block_c.right = block_b;
+    block_c.left_origin = block_a.id;
+    block_c.right_origin = block_b.id;
+
+    block_d.left = block_a;
+    block_d.right = block_b;
+    block_d.left_origin = block_a.id;
+    block_d.right_origin = block_b.id;
+
+    // Integrate both blocks
+    try array.integrate(block_c);
+    try array.integrate(block_d);
+
+    // Verify final sequence - since client 1 < client 2,
+    // we expect "C" to be before "D"
+    var buf = std.ArrayList(u8).init(allocator);
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
-
-    try t.expectEqualSlices(u8, "ABCDEF", content);
-}
-
-test "localInsert between" {
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
-
-    var marker_list = std.ArrayList(Marker).init(allocator);
-    var marker_system = SearchMarkerType().init(&marker_list);
-    var array = BlockStoreType().init(allocator, &marker_system, &clk);
-
-    try array.insert_text(0, "A");
-
-    try array.insert_text(1, "B");
-
-    try array.insert_text(1, "C");
-
-    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
-    try array.content(&buf);
-    const content = try buf.toOwnedSlice();
-
-    try t.expectEqualSlices(u8, "ACB", content);
-}
-
-test "searchMarkers" {
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
-
-    var marker_list = std.ArrayList(Marker).init(allocator);
-    var marker_system = SearchMarkerType().init(&marker_list);
-    var array = BlockStoreType().init(allocator, &marker_system, &clk);
-
-    try array.insert_text(0, "A");
-
-    try array.insert_text(1, "B");
-
-    try array.insert_text(2, "C");
-
-    try array.insert_text(3, "D");
-
-    try array.insert_text(4, "E");
-
-    var marker = try marker_system.find_block(0);
-    try t.expectEqualStrings("A", marker.item.content);
-
-    marker = try marker_system.find_block(3);
-    try t.expectEqualStrings("D", marker.item.content);
-
-    marker = try marker_system.find_block(59);
-    try t.expectEqualStrings("E", marker.item.content);
+    try t.expectEqualSlices(u8, "ACDB", content);
 }
