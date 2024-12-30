@@ -260,24 +260,40 @@ pub fn BlockStoreType() type {
                 // now the first conflicting item has been set
                 // let's move on to the conflict resolution loop
 
+                // this array acts as a distinct set of items that are "potential" conflicts with the `block`
+                // this is because we have not found the right neighbor for our block yet
+                // at every point where we know that these set of items for sure won't conflict with the `block`
+                // we clear this set out
                 var conflicting_items = Set.Set(Block).init(self.allocator);
                 defer conflicting_items.deinit();
 
+                // this array acts as a distinct set of items which we consider as falling before `block`
+                // this set is used in conjunction with the conflicting items set to figure out WHEN to clear
+                // the conflicting set! this is used to avoid origin crossing since we only increment our left
+                // pointer when we find that left origin is not the same for `block` and `o` but the left origin
+                // of `o` falls in this set but is not present in the conflicting items set, this is because we know
+                // for sure such items will not conflict with the `block`
                 var items_before_origin = Set.Set(Block).init(self.allocator);
                 defer items_before_origin.deinit();
 
-                // conflict res loop starts
+                // conflict resolution loop starts
                 while (o != null and o.? != block.right) {
                     items_before_origin.add(o.?.*);
                     conflicting_items.add(o.?.*);
 
+                    // check for same left derivation points
                     if (o.left_origin == block.left_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
+                        // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
                         if (o.?.id.client < block.id.client) {
                             left = o.?;
                             conflicting_items.clearAndFree();
                         } else if (o.?.right_origin == block.right_origin or (o != null and block != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock)) {
+                            // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
                             break;
                         }
+                        // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
+                        // if that is the case, we can clear the conflicting items set and increment our left pointer to point to the
+                        // `o` block
                     } else if (o.?.left_origin != null and items_before_origin.contains(self.get_block_by_id(o.?.left_origin.?))) {
                         if (!conflicting_items.contains(self.get_block_by_id(o.?.left_origin.?))) {
                             left = o.?;
@@ -289,14 +305,27 @@ pub fn BlockStoreType() type {
                     }
                     o = o.?.right;
                 }
+                // set the new neighbor
                 block.left = left;
             }
 
-            // conflict resolved by this point and the left neighbor for the new block is set
-            // now we adjust for the right neighbor and exit the flow
-
-            // for now just print the conflict resolved neighbors
             std.debug.print("conflict resolved left neighbor: id:{any} content: {s} \n", .{ block.left.?.id, block.left.?.content });
+
+            // reconnect left neighbor
+            if (block.left != null) {
+                const right = block.left.?.right;
+                block.right = right;
+                block.left.?.right = block;
+            } else {
+                std.debug.print("block.left is null \n left neighbor reconnection failed :( \n", .{});
+            }
+
+            // reconnect right neighbor
+            if (block.right != null) {
+                block.right.left = block;
+            } else {
+                std.debug.print("block.left is null \n right neighbor reconnection failed :( \n", .{});
+            }
         }
     };
 }
