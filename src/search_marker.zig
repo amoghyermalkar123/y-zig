@@ -257,12 +257,14 @@ pub fn BlockStoreType() type {
                 // set the left pointer, this is used across the conflict resolution loop to figure out the new neighbors
                 // for ' block'
                 var left = block.left;
-                // set first conflicting item as start element of the document by default
                 var o: ?*Block = null;
-                // if we have a left neighbor, set that as the first conflicting item
+                // if we have a left neighbor, set the right of it as the first conflicting item
+                // since we cannot conflict with our own left.
                 if (left != null) {
                     o = left.?.right;
                 } else {
+                    // if the left neighbor of the new block is null, we can start
+                    // at the start of the document
                     o = self.start orelse unreachable;
                 }
 
@@ -286,6 +288,7 @@ pub fn BlockStoreType() type {
                 defer items_before_origin.deinit();
 
                 std.debug.print("first conflict block set: {s}\n", .{o.?.content});
+                std.debug.print("first left pointer set: {s}\n", .{left.?.content});
                 // conflict resolution loop starts
                 while (o != null and o.? != block.right.?) {
                     std.debug.print("==conflict res logic starts==\n", .{});
@@ -299,7 +302,7 @@ pub fn BlockStoreType() type {
                             std.debug.print("CASE 1\n", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
-                        } else if (o != null and o.?.id.client == block.id.client and o.?.id.clock == block.id.clock) {
+                        } else if (o != null and BlockStoreType().compareIDs(o.?.right_origin, block.right_origin)) {
                             // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
                             std.debug.print("CASE 2\n", .{});
                             break;
@@ -517,4 +520,115 @@ test "integrate - concurrent edits at same position" {
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ACDB", content);
+}
+
+test "integrate - same client different clocks" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Setup marker system
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial blocks: "A" -> "B"
+    try array.insert_text(0, "A");
+    try array.insert_text(1, "B");
+
+    const block_a = array.start.?;
+    const block_b = block_a.right.?;
+
+    const block_c1 = try allocator.create(Block);
+    block_c1.* = Block.block(ID.id(3, 1), "C1");
+    block_c1.left = block_a;
+    block_c1.right = block_b;
+    block_c1.left_origin = block_a.id;
+    block_c1.right_origin = block_b.id;
+
+    const block_c2 = try allocator.create(Block);
+    block_c2.* = Block.block(ID.id(4, 1), "C2"); // Same client (1), different clock (4)
+    block_c2.left = block_a;
+    block_c2.right = block_b;
+    block_c2.left_origin = block_a.id;
+    block_c2.right_origin = block_b.id;
+
+    try array.integrate(block_c1);
+    try array.integrate(block_c2);
+
+    var buf = std.ArrayList(u8).init(allocator);
+    try array.content(&buf);
+    const content = try buf.toOwnedSlice();
+    try t.expectEqualSlices(u8, "AC1C2B", content);
+}
+
+test "integrate - duplicate ID" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    try array.insert_text(0, "A");
+    try array.insert_text(1, "B");
+
+    const block_a = array.start.?;
+    const block_b = block_a.right.?;
+
+    const block_c = try allocator.create(Block);
+    block_c.* = Block.block(ID.id(3, 1), "C");
+    block_c.left = block_a;
+    block_c.right = block_b;
+    block_c.left_origin = block_a.id;
+    block_c.right_origin = block_b.id;
+
+    const block_duplicate = try allocator.create(Block);
+    block_duplicate.* = Block.block(ID.id(3, 1), "D"); // Same ID as block_c
+    block_duplicate.left = block_a;
+    block_duplicate.right = block_b;
+    block_duplicate.left_origin = block_a.id;
+    block_duplicate.right_origin = block_b.id;
+
+    try array.integrate(block_c);
+    try array.integrate(block_duplicate);
+
+    var buf = std.ArrayList(u8).init(allocator);
+    try array.content(&buf);
+    const content = try buf.toOwnedSlice();
+    // Duplicate is treated as a concurrent edit at the same time but in this case
+    // it's the same client, so it acts as a local insert
+    try t.expectEqualSlices(u8, "ADCB", content);
+}
+
+test "integrate - null origins should fail" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    try array.insert_text(0, "A");
+    try array.insert_text(1, "B");
+
+    const block_a = array.start.?;
+    const block_b = block_a.right.?;
+
+    const block_null = try allocator.create(Block);
+    block_null.* = Block.block(ID.id(5, 1), "C");
+    block_null.left = block_a;
+    block_null.right = block_b;
+    block_null.left_origin = null;
+    block_null.right_origin = null;
+
+    // This should trigger an assertion failure in debug mode
+    if (!std.debug.runtime_safety) {
+        try array.integrate(block_null);
+    }
 }
