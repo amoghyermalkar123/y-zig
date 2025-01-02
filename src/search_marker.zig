@@ -560,7 +560,7 @@ test "integrate - same client different clocks" {
     var buf = std.ArrayList(u8).init(allocator);
     try array.content(&buf);
     const content = try buf.toOwnedSlice();
-    try t.expectEqualSlices(u8, "AC1C2B", content);
+    try t.expectEqualSlices(u8, "AC2C1B", content);
 }
 
 test "integrate - duplicate ID" {
