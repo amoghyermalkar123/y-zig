@@ -203,7 +203,9 @@ pub fn BlockStoreType() type {
                 // add items in the middle of the list
                 // the marker system will find us exactly where this block needs to be added
                 new_block.left = m.item.left;
+                new_block.left_origin = m.item.left.?.id;
                 new_block.right = m.item;
+                new_block.right_origin = m.item.id;
                 new_block.left.?.right = new_block;
                 m.item.left = new_block;
             } else if (self.start == null) {
@@ -213,6 +215,7 @@ pub fn BlockStoreType() type {
                 // add items that are appended
                 m.item.right = new_block;
                 new_block.left = m.item;
+                new_block.left_origin = m.item.id;
             }
 
             self.length += text.len;
@@ -348,6 +351,7 @@ pub fn BlockStoreType() type {
 }
 
 const t = std.testing;
+const mem = std.mem;
 
 test "localInsert" {
     var clk = Clock.init();
@@ -631,4 +635,148 @@ test "integrate - null origins should fail" {
     if (!std.debug.runtime_safety) {
         try array.integrate(block_null);
     }
+}
+
+test "same origin multiple items - basic ordering" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial block
+    try store.insert_text(0, "A");
+    const origin_block = store.start.?;
+
+    // Create blocks with same origin but different timestamps
+    try store.insert_text(1, "B");
+    try store.insert_text(1, "C");
+
+    // Get the actual blocks in order they appear in the list
+    const first_insert = origin_block.right.?; // Points to C
+    const second_insert = first_insert.right.?; // Points to B
+
+    // Verify correct ordering by clock
+    // The later insertion (C) should have a higher clock than earlier insertion (B)
+    try t.expect(first_insert.id.clock > second_insert.id.clock);
+
+    // Also verify the actual content to make our test more explicit
+    try t.expectEqualStrings("C", first_insert.content);
+    try t.expectEqualStrings("B", second_insert.content);
+}
+
+test "same origin multiple items - concurrent inserts" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create base structure: "A"
+    try store.insert_text(0, "A");
+    const origin_block = store.start.?;
+
+    // Simulate concurrent inserts from different clients after "A"
+    const block_b = try allocator.create(Block);
+    block_b.* = Block.block(ID.id(2, 0), "B");
+    block_b.left_origin = origin_block.id;
+
+    const block_c = try allocator.create(Block);
+    block_c.* = Block.block(ID.id(1, 0), "C");
+    block_c.left_origin = origin_block.id;
+
+    // Integrate in different order than final expected order
+    try store.integrate(block_b); // Higher client ID
+    try store.integrate(block_c); // Lower client ID
+
+    // Verify final order should be A -> C -> B based on client IDs
+    var current = store.start.?;
+    try t.expect(mem.eql(u8, current.content, "A"));
+    current = current.right.?;
+    try t.expect(mem.eql(u8, current.content, "C")); // Lower client ID first
+    current = current.right.?;
+    try t.expect(mem.eql(u8, current.content, "B")); // Higher client ID second
+}
+
+test "null origin handling" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Insert at start of empty document (null origin)
+    try store.insert_text(0, "A");
+    try t.expect(store.start.?.left_origin == null);
+
+    // Create block explicitly with null origin
+    const block = try allocator.create(Block);
+    block.* = Block.block(ID.id(1, 0), "B");
+    block.left_origin = null;
+    block.right_origin = null;
+
+    try store.integrate(block);
+
+    // Verify integration at document start
+    try t.expect(mem.eql(u8, store.start.?.content, "A"));
+    try t.expect(mem.eql(u8, store.start.?.right.?.content, "B"));
+}
+
+test "origin crossing prevention - basic" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial structure: "ABC"
+    try store.insert_text(0, "A");
+    try store.insert_text(1, "B");
+    try store.insert_text(2, "C");
+
+    const a_block = store.start.?;
+    const b_block = a_block.right.?;
+    const c_block = b_block.right.?;
+
+    // Try to create blocks that would cause origin crossing
+    const block_x = try allocator.create(Block);
+    block_x.* = Block.block(ID.id(2, 0), "X");
+    block_x.left_origin = c_block.id;
+    block_x.right_origin = a_block.id;
+
+    // This integration should prevent origin crossing
+    try store.integrate(block_x);
+
+    // Verify final order maintains no crossing
+    var current = store.start;
+    var content = std.ArrayList(u8).init(allocator);
+    while (current != null) : (current = current.?.right) {
+        try content.appendSlice(current.?.content);
+    }
+
+    const result = content.items;
+    // X should not be between A and C (which would indicate crossing)
+    try t.expect(!containsSubsequence(result, "AXC"));
+}
+
+fn containsSubsequence(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    for (0..(haystack.len - needle.len + 1)) |i| {
+        if (mem.eql(u8, haystack[i..(i + needle.len)], needle)) {
+            return true;
+        }
+    }
+    return false;
 }
