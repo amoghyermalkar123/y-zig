@@ -11,13 +11,13 @@ focusing only on the text based data structure as of now.
 
 ### This is a priority list arranged from high to low
 Phase 1: Only focus on Single character content
-Items:
-[X] implement integration logic (local insert)
+- Items:
+  [X] implement integration logic (local insert)
 
 Phase 2: add support for a proper string content
-Items:
-[] implement block splitting
-TBD
+- Items:
+  - implement block splitting
+  - TBD
 
 Phase 3: Build on top of it:
 - state vector based delta awareness
