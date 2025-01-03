@@ -142,6 +142,7 @@ pub fn BlockStoreType() type {
         }
 
         pub fn get_block_by_id(self: Self, id: ID) ?Block {
+            std.debug.print("checking id: {any}\n", .{id});
             var next = self.start;
             while (next != null) {
                 if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next.?.*;
@@ -187,6 +188,9 @@ pub fn BlockStoreType() type {
         }
 
         // TODO: support multi-character inputs
+        // TODO: the first and the last element should not have empty left/ right origins
+        // add a special char or id to handle this
+        // otherwise it's preventing to identify case 3 of conflict resolution
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             // allocate memory for new block
             const new_block = try self.allocator.create(Block);
@@ -290,14 +294,21 @@ pub fn BlockStoreType() type {
                 var items_before_origin = std.AutoHashMap(ID, void).init(self.allocator);
                 defer items_before_origin.deinit();
 
-                std.debug.print("first conflict block set: {s}\n", .{o.?.content});
-                std.debug.print("first left pointer set: {s}\n", .{left.?.content});
+                // std.debug.print("first conflict block set: {s}\n", .{o.?.content});
+                // std.debug.print("first left pointer set: {s}\n", .{left.?.content});
                 // conflict resolution loop starts
-                while (o != null and o.? != block.right.?) {
+                while (o != null and o != block.right) {
                     std.debug.print("==conflict res logic starts==\n", .{});
                     try items_before_origin.put(o.?.id, {});
                     try conflicting_items.put(o.?.id, {});
-
+                    std.debug.print("IBO \n", .{});
+                    var it = items_before_origin.keyIterator();
+                    var value = it.next();
+                    while (value != null) {
+                        std.debug.print("item : {any}\n", .{value.?.*});
+                        value = it.next();
+                    }
+                    std.debug.print("IBO end\n", .{});
                     // check for same left derivation points
                     if (o != null and BlockStoreType().compareIDs(o.?.left_origin, block.left_origin)) {
                         // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
@@ -344,7 +355,7 @@ pub fn BlockStoreType() type {
             if (block.right != null) {
                 block.right.?.left = block;
             } else {
-                std.debug.print("block.left is null \n right neighbor reconnection failed :( \n", .{});
+                std.debug.print("block.right is null \n right neighbor reconnection failed :( \n", .{});
             }
         }
     };
@@ -668,6 +679,10 @@ test "same origin multiple items - basic ordering" {
     try t.expectEqualStrings("B", second_insert.content);
 }
 
+// TODO: last 3 tests should be for the update flow
+// TODO: work on the update flow
+//
+
 test "same origin multiple items - concurrent inserts" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -779,4 +794,74 @@ fn containsSubsequence(haystack: []const u8, needle: []const u8) bool {
         }
     }
     return false;
+}
+
+test "YATA origin ordering - concurrent operations" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // First create a base sequence locally: "ABC"
+    try store.insert_text(0, "A");
+    try store.insert_text(1, "B");
+    try store.insert_text(2, "C");
+
+    // Get our base blocks for setting up concurrent operations
+    const block_a = store.start.?;
+    const block_b = block_a.right.?;
+    const block_c = block_b.right.?;
+
+    // Now simulate two concurrent remote operations:
+    // Remote client 2 creates block X with:
+    // - left origin points to B
+    // - right origin points to C
+    const block_x = try allocator.create(Block);
+    block_x.* = Block.block(ID.id(0, 2), "X"); // Client 2, clock 0
+    block_x.left_origin = block_b.id;
+    block_x.right_origin = block_c.id;
+
+    // Remote client 3 creates block Y with:
+    // - left origin points to A
+    // - right origin points to C
+    const block_y = try allocator.create(Block);
+    block_y.* = Block.block(ID.id(0, 3), "Y"); // Client 3, clock 0
+    block_y.left_origin = block_a.id;
+    block_y.right_origin = block_c.id;
+
+    // Integrate both blocks
+    try store.integrate(block_x);
+    try store.integrate(block_y);
+
+    // Get final content
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+
+    // Verify that:
+    // 1. Content maintains origin ordering
+    // 2. Y is integrated after its left origin (A)
+    // 3. X is integrated after its left origin (B)
+    // 4. Both X and Y come before their right origin (C)
+    try t.expect(content.len == 5); // A,B,C + X,Y
+
+    // Find positions of each character
+    const pos_a = std.mem.indexOf(u8, content, "A").?;
+    const pos_b = std.mem.indexOf(u8, content, "B").?;
+    const pos_c = std.mem.indexOf(u8, content, "C").?;
+    const pos_x = std.mem.indexOf(u8, content, "X").?;
+    const pos_y = std.mem.indexOf(u8, content, "Y").?;
+
+    // Verify the final ordering respects origin relationships
+    try t.expect(pos_a < pos_y); // Y must come after its left origin A
+    try t.expect(pos_b < pos_x); // X must come after its left origin B
+    try t.expect(pos_x < pos_c); // X must come before its right origin C
+    try t.expect(pos_y < pos_c); // Y must come before its right origin C
+
+    // The expected final sequence should be "AYBXC"
+    try t.expectEqualStrings("AYBXC", content);
 }
