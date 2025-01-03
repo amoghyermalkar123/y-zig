@@ -5,6 +5,7 @@ This is inspired by the academic paper here - https://www.researchgate.net/publi
 
 and tries to be a mini-port of the Yjs implementation of the same paper here -
 https://github.com/yjs/yjs
+focusing only on the text based data structure as of now.
 
 ### Roadmap
 ## This is a priority list arranged from high to low
