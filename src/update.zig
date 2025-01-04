@@ -1,19 +1,58 @@
-const DotCloud = @import("doc.zig").DotCloud;
+const std = @import("std");
+const search_marker = @import("search_marker.zig");
+const Block = search_marker.Block;
+const ID = search_marker.ID;
 
-// Updates is decoded from a remote peer data we get from the network
-pub const Updates = struct {
-    updates: DotCloud,
+pub const Blocks = []Block;
+
+pub const PendingStruct = struct {
+    blocks: std.AutoHashMap(ID, Block),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) PendingStruct {
+        return .{
+            .blocks = std.AutoHashMap(ID, Block).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn addPending(self: *PendingStruct, block: Block, reason: []const u8) !void {
+        try self.blocks.put(block.id, block);
+        std.log.info("Block {any} pending: {s}", .{ block.id, reason });
+    }
 };
 
-// TODO: should returning pending stack
-// and the caller should handle this
-// (typically the caller should be the doc store)
-pub fn apply_update(update: Updates) anyerror!void {
-    // STEP 1: integrate dot cloud
-    // STEP 2: set the target client block list from the dot cloud
-    // STEP 3: set the stack head (first element from the client block list)
-    // STEP 4: figure out neighbor assignment is possible or not based off of left/right origins
-    // STEP 5: integrate (optional, based on result of step 4)
-}
+pub const Updates = struct {
+    updates: *std.ArrayHashMap(u64, *Blocks),
+};
 
-pub fn integrate_structs() !void {}
+pub const UpdateResult = struct {
+    pending: PendingStruct,
+};
+
+pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, allocator: std.mem.Allocator) !UpdateResult {
+    var result = UpdateResult{
+        .pending = PendingStruct.init(allocator),
+    };
+
+    var iter = update.updates.iterator();
+    while (iter.next()) |entry| {
+        const blocks = entry.value_ptr.*;
+
+        // Process blocks in order of clock
+        for (blocks) |block| {
+            // Try to find origin blocks
+            const left_block = store.get_block_by_id(block.left_origin.?);
+            const right_block = store.get_block_by_id(block.right_origin.?);
+
+            if (left_block == null or right_block == null) {
+                try result.pending.addPending(block, "Missing origin blocks");
+                continue;
+            }
+
+            // TODO: Implement neighbor finding and integration
+        }
+    }
+
+    return result;
+}
