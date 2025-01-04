@@ -4,7 +4,7 @@ pub const MonotonicClock = struct {
 
     pub fn init() Self {
         return Self{
-            .clock = 0,
+            .clock = 2,
         };
     }
     pub fn getClock(self: *MonotonicClock) u64 {
