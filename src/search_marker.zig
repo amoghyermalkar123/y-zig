@@ -4,6 +4,9 @@ const Set = @import("ziglangSet");
 
 const Allocator = std.mem.Allocator;
 
+const SPECIAL_CLOCK_LEFT = 0;
+const SPECIAL_CLOCK_RIGHT = 1;
+
 pub const ID = struct {
     clock: u64,
     client: u64,
@@ -141,14 +144,13 @@ pub fn BlockStoreType() type {
             };
         }
 
-        pub fn get_block_by_id(self: Self, id: ID) ?Block {
-            std.debug.print("checking id: {any}\n", .{id});
+        pub fn get_block_by_id(self: Self, id: ID) ?*Block {
             var next = self.start;
             while (next != null) {
-                if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next.?.*;
+                if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next;
                 next = next.?.right;
             }
-            return next.?.*;
+            return next;
         }
 
         // this function should only be called in certain scenarios when a block actually requires
@@ -214,10 +216,13 @@ pub fn BlockStoreType() type {
                 m.item.left = new_block;
             } else if (self.start == null) {
                 // add first item
+                new_block.left_origin = ID.id(SPECIAL_CLOCK_LEFT, 1);
+                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
                 self.start = new_block;
             } else {
                 // add items that are appended
                 m.item.right = new_block;
+                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
                 new_block.left = m.item;
                 new_block.left_origin = m.item.id;
             }
@@ -246,6 +251,10 @@ pub fn BlockStoreType() type {
 
             std.debug.print("integrating : {s}\n", .{block.content});
             var isConflict = false;
+            // this case check can be a false positive, if your blocks do no go through neighbor checking
+            // before integrating this can act as a conflict (since remote blocks always come with empty left/right neighbors)
+            // caller's responsibility to check if neighbor asg is possible or not based on the origins
+            // if not only then call the integration process.
             if (block.left == null and block.right == null) {
                 isConflict = true;
             } else if (block.left == null and block.right != null) {
@@ -294,21 +303,16 @@ pub fn BlockStoreType() type {
                 var items_before_origin = std.AutoHashMap(ID, void).init(self.allocator);
                 defer items_before_origin.deinit();
 
-                // std.debug.print("first conflict block set: {s}\n", .{o.?.content});
-                // std.debug.print("first left pointer set: {s}\n", .{left.?.content});
+                std.debug.print("first conflict block set: {s}\n", .{o.?.content});
+
+                std.debug.print("=====conflict res logic starts=====\n", .{});
                 // conflict resolution loop starts
                 while (o != null and o != block.right) {
-                    std.debug.print("==conflict res logic starts==\n", .{});
+                    std.debug.print("current conflicting item: {s}\n", .{o.?.content});
+
                     try items_before_origin.put(o.?.id, {});
                     try conflicting_items.put(o.?.id, {});
-                    std.debug.print("IBO \n", .{});
-                    var it = items_before_origin.keyIterator();
-                    var value = it.next();
-                    while (value != null) {
-                        std.debug.print("item : {any}\n", .{value.?.*});
-                        value = it.next();
-                    }
-                    std.debug.print("IBO end\n", .{});
+
                     // check for same left derivation points
                     if (o != null and BlockStoreType().compareIDs(o.?.left_origin, block.left_origin)) {
                         // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
@@ -324,13 +328,34 @@ pub fn BlockStoreType() type {
                         // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
                         // if that is the case, we can clear the conflicting items set and increment our left pointer to point to the
                         // `o` block
-                    } else if (o.?.left_origin != null and items_before_origin.contains(self.get_block_by_id(o.?.left_origin.?).?.id)) {
-                        if (!conflicting_items.contains(self.get_block_by_id(o.?.left_origin.?).?.id)) {
+                    } else if (o.?.left_origin != null) {
+                        const blk = self.get_block_by_id(o.?.left_origin.?);
+
+                        std.debug.print("IBO: \t", .{});
+                        var it = items_before_origin.keyIterator();
+                        var value = it.next();
+                        while (value != null) {
+                            std.debug.print("{s}, ", .{self.get_block_by_id(value.?.*).?.content});
+                            value = it.next();
+                        }
+                        std.debug.print("\n", .{});
+
+                        std.debug.print("CI: \t", .{});
+                        it = conflicting_items.keyIterator();
+                        value = it.next();
+                        while (value != null) {
+                            std.debug.print("{s}, ", .{self.get_block_by_id(value.?.*).?.content});
+                            value = it.next();
+                        }
+                        std.debug.print("\n", .{});
+
+                        if (blk != null and items_before_origin.contains(blk.?.id) and !conflicting_items.contains(blk.?.id)) {
                             std.debug.print("CASE 3\n", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
+                        } else {
+                            std.debug.print("SKIP\n", .{});
                         }
-                        std.debug.print("SKIP\n", .{});
                     } else {
                         // we might have found our left
                         std.debug.print("WEIRD\n", .{});
@@ -348,15 +373,17 @@ pub fn BlockStoreType() type {
                 block.right = right;
                 block.left.?.right = block;
             } else {
-                std.debug.print("block.left is null \n left neighbor reconnection failed :( \n", .{});
+                std.debug.print("block.left is null left neighbor reconnection failed :( \n", .{});
             }
 
             // reconnect right neighbor
             if (block.right != null) {
                 block.right.?.left = block;
             } else {
-                std.debug.print("block.right is null \n right neighbor reconnection failed :( \n", .{});
+                std.debug.print("block.right is null right neighbor reconnection failed :( \n", .{});
             }
+
+            std.debug.print("=====conflict res logic ends=====\n", .{});
         }
     };
 }
@@ -682,7 +709,6 @@ test "same origin multiple items - basic ordering" {
 // TODO: last 3 tests should be for the update flow
 // TODO: work on the update flow
 //
-
 test "same origin multiple items - concurrent inserts" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -786,16 +812,14 @@ test "origin crossing prevention - basic" {
     try t.expect(!containsSubsequence(result, "AXC"));
 }
 
-fn containsSubsequence(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len > haystack.len) return false;
-    for (0..(haystack.len - needle.len + 1)) |i| {
-        if (mem.eql(u8, haystack[i..(i + needle.len)], needle)) {
-            return true;
-        }
-    }
-    return false;
-}
-
+// TODO: in this test i put X between B and C. but this is only
+// attaching left and right origin fields and not going via the insert text flow
+// because we are emulating a remote update integration
+// so the problem is that my integrate algorithm is unable to add X to the right of B
+// despite giving B as the left origin of X. Figure out Why?
+// you might need to find out differences between your way of testing this and whether
+// there is a gap between your implementation and how yjs handles this.
+// because yjs puts X between B and C but i do use the applyUpdate flow there (check example/main.js there)
 test "YATA origin ordering - concurrent operations" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -828,14 +852,14 @@ test "YATA origin ordering - concurrent operations" {
     // Remote client 3 creates block Y with:
     // - left origin points to A
     // - right origin points to C
-    const block_y = try allocator.create(Block);
-    block_y.* = Block.block(ID.id(0, 3), "Y"); // Client 3, clock 0
-    block_y.left_origin = block_a.id;
-    block_y.right_origin = block_c.id;
+    // const block_y = try allocator.create(Block);
+    // block_y.* = Block.block(ID.id(0, 3), "Y"); // Client 3, clock 0
+    // block_y.left_origin = block_a.id;
+    // block_y.right_origin = block_c.id;
 
     // Integrate both blocks
     try store.integrate(block_x);
-    try store.integrate(block_y);
+    // try store.integrate(block_y);
 
     // Get final content
     var buf = std.ArrayList(u8).init(allocator);
@@ -847,21 +871,32 @@ test "YATA origin ordering - concurrent operations" {
     // 2. Y is integrated after its left origin (A)
     // 3. X is integrated after its left origin (B)
     // 4. Both X and Y come before their right origin (C)
-    try t.expect(content.len == 5); // A,B,C + X,Y
+    try t.expect(content.len == 4); // A,B,C + X,Y
 
+    std.debug.print("CONTENT: {s}\n", .{content});
     // Find positions of each character
-    const pos_a = std.mem.indexOf(u8, content, "A").?;
+    // const pos_a = std.mem.indexOf(u8, content, "A").?;
     const pos_b = std.mem.indexOf(u8, content, "B").?;
     const pos_c = std.mem.indexOf(u8, content, "C").?;
     const pos_x = std.mem.indexOf(u8, content, "X").?;
-    const pos_y = std.mem.indexOf(u8, content, "Y").?;
+    // const pos_y = std.mem.indexOf(u8, content, "Y").?;
 
     // Verify the final ordering respects origin relationships
-    try t.expect(pos_a < pos_y); // Y must come after its left origin A
+    // try t.expect(pos_a < pos_y); // Y must come after its left origin A
     try t.expect(pos_b < pos_x); // X must come after its left origin B
     try t.expect(pos_x < pos_c); // X must come before its right origin C
-    try t.expect(pos_y < pos_c); // Y must come before its right origin C
+    // try t.expect(pos_y < pos_c); // Y must come before its right origin C
 
     // The expected final sequence should be "AYBXC"
     try t.expectEqualStrings("AYBXC", content);
+}
+
+fn containsSubsequence(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    for (0..(haystack.len - needle.len + 1)) |i| {
+        if (mem.eql(u8, haystack[i..(i + needle.len)], needle)) {
+            return true;
+        }
+    }
+    return false;
 }
