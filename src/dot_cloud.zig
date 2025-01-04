@@ -3,14 +3,21 @@ const BlockStore = @import("search_marker.zig").BlockStoreType();
 const LOCAL_CLIENT = 1;
 
 const DotCloud = struct {
-    client_blocks: std.ArrayHashMap(u64, ?*BlockStore),
+    // map of client ids to the last clock they observed
+    state_vector: std.ArrayHashMap(u64, u64),
+    // underlying block store for this dot cloud
+    // consists of the post conflict resolution doubly-linked list of blocks
+    block_store: ?*BlockStore;
+
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) anyerror!Self {
         const dc = DotCloud{
-            .client_blocks = std.ArrayHashMap(u64, ?*BlockStore).init(allocator),
+            .state_vector = std.ArrayHashMap(u64, u64).init(allocator),
+            .block_store = block_store,
         };
-        dc.client_blocks.putNoClobber(LOCAL_CLIENT, null);
+        // 1 because the monotonic clocks start from 2 so the last seen should be 1
+        dc.client_blocks.putNoClobber(LOCAL_CLIENT, 1);
         return dc;
     }
 };
