@@ -51,10 +51,10 @@
         //    // actually used.
         //    .lazy = false,
         //},
-        //
-        .ziglangSet = .{
-            .url = "https://github.com/deckarep/ziglang-set/archive/33c50cdd9d0e5757517347e2069776da6b419baa.tar.gz",
-            .hash = "1220334dbce1f8503c075ba6a2f75618828a8f92688fd5ac91e38cc0bb1de520664e",
+        .string = .{
+            .url = "https://github.com/JakubSzark/zig-string/archive/refs/heads/master.tar.gz",
+            .hash = "12208fa7e4afc8a9c2b267f034d4d7b69952ac5bf39e48449e0a54dcbaae2309f54e",
+            //the correct hash will be suggested by zig
         },
     },
 
