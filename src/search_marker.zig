@@ -153,6 +153,13 @@ pub fn BlockStoreType() type {
             return next;
         }
 
+        // will allocate some space in memory and return the pointer to it.
+        pub fn allocate_block(self: *Self, block: Block) !*Block {
+            const new_block = try self.allocator.create(Block);
+            new_block.* = block;
+            return new_block;
+        }
+
         // this function should only be called in certain scenarios when a block actually requires
         // splitting, the caller needs to have all checks in place before calling this function
         // we dont want to split weirdly
