@@ -1,6 +1,8 @@
 const std = @import("std");
 const search_marker = @import("search_marker.zig");
 const Block = search_marker.Block;
+const SPECIAL_CLOCK_LEFT = search_marker.SPECIAL_CLOCK_LEFT;
+const SPECIAL_CLOCK_RIGHT = search_marker.SPECIAL_CLOCK_RIGHT;
 const Clock = @import("global_clock.zig").MonotonicClock;
 const ID = search_marker.ID;
 
@@ -31,24 +33,8 @@ pub const UpdateResult = struct {
     pending: PendingStruct,
 };
 
-fn tryAssignNeighbors(store: *search_marker.BlockStoreType(), block: *Block) bool {
-    if (block.left_origin == null or block.right_origin == null) return false;
-
-    const left_block = store.get_block_by_id(block.left_origin.?);
-    const right_block = store.get_block_by_id(block.right_origin.?);
-
-    if (left_block == null or right_block == null) return false;
-
-    // Only assign if blocks are consecutive
-    if (left_block.?.right == right_block) {
-        block.left = left_block;
-        block.right = right_block;
-        return true;
-    }
-
-    return false;
-}
-
+// TODO: refer yjs to understand the algorithm and figure out pre-requisite items we need
+// to take care of before calling integrate on a block
 pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, allocator: std.mem.Allocator) !UpdateResult {
     var result = UpdateResult{
         .pending = PendingStruct.init(allocator),
@@ -63,7 +49,7 @@ pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, all
             const blk = try store.allocate_block(block);
 
             // if we cannot assign neighbors to this block, the pending struct will reference the blk pointer
-            if (!tryAssignNeighbors(store, blk)) {
+            if (!store.tryAssignNeighbors(blk)) {
                 try result.pending.addPending(blk);
                 continue;
             }
@@ -127,5 +113,75 @@ test "basic update application" {
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ACB", content);
+    try t.expect(result.pending.blocks.count() == 0);
+}
+
+test "concurrent client updates" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
+    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
+    var store = try search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Insert first block 'A'
+    try store.insert_text(0, "A");
+
+    // Get the actual block A (not sentinel)
+    const base_block = store.start.?.right.?;
+    try t.expect(std.mem.eql(u8, base_block.content, "A"));
+
+    // Create concurrent blocks
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    // Create block B
+    const block_b = try createTestBlock(allocator, ID.id(3, 1), "B");
+    block_b.* = Block{
+        .id = block_b.id,
+        .content = "B",
+        .left_origin = base_block.id,
+        .right_origin = base_block.right.?.id, // Right sentinel
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_b.*);
+
+    // Create block C
+    const block_c = try createTestBlock(allocator, ID.id(3, 2), "C");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "C",
+        .left_origin = base_block.id,
+        .right_origin = base_block.right.?.id, // Right sentinel
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    // Setup updates
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+    try updates.put(1, &blocks_list);
+
+    // Apply update
+    const result = try apply_update(&store, .{ .updates = &updates }, allocator);
+
+    // Debug state
+    std.debug.print("\nFinal state:\n", .{});
+    var current = store.start.?.right; // Skip left sentinel
+    while (current != null and current.?.id.clock != SPECIAL_CLOCK_RIGHT) {
+        std.debug.print("Block: content={s} id={any}\n", .{ current.?.content, current.?.id });
+        current = current.?.right;
+    }
+    std.debug.print("Pending blocks: {any}\n", .{result.pending.blocks.count()});
+
+    // Verify content
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    try t.expectEqualSlices(u8, "ABC", content);
     try t.expect(result.pending.blocks.count() == 0);
 }

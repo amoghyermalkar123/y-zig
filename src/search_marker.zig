@@ -4,13 +4,16 @@ const Set = @import("ziglangSet");
 
 const Allocator = std.mem.Allocator;
 
-const SPECIAL_CLOCK_LEFT = 0;
-const SPECIAL_CLOCK_RIGHT = 1;
+pub const SPECIAL_CLOCK_LEFT = 0;
+pub const SPECIAL_CLOCK_RIGHT = 1;
 
 pub const ID = struct {
     clock: u64,
     client: u64,
 
+    // Add sentinel constants
+    pub const SENTINEL_LEFT = ID{ .clock = SPECIAL_CLOCK_LEFT, .client = 1 };
+    pub const SENTINEL_RIGHT = ID{ .clock = SPECIAL_CLOCK_RIGHT, .client = 1 };
     pub fn id(clock: u64, client: u64) ID {
         return ID{
             .clock = clock,
@@ -26,6 +29,29 @@ pub const Block = struct {
     left: ?*Block,
     right: ?*Block,
     content: []const u8,
+
+    // Add helper constructors
+    pub fn makeFirstBlock(id: ID, text: []const u8) Block {
+        return Block{
+            .id = id,
+            .left_origin = ID.SENTINEL_LEFT,
+            .right_origin = ID.SENTINEL_RIGHT,
+            .left = null,
+            .right = null,
+            .content = text,
+        };
+    }
+
+    pub fn makeAppendBlock(id: ID, text: []const u8, left: ID) Block {
+        return Block{
+            .id = id,
+            .left_origin = left,
+            .right_origin = ID.SENTINEL_RIGHT,
+            .left = null,
+            .right = null,
+            .content = text,
+        };
+    }
 
     pub fn block(id: ID, text: []const u8) Block {
         return Block{
@@ -136,12 +162,63 @@ pub fn BlockStoreType() type {
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, marker_system: *markers, clock: *Clock) Self {
+        pub fn init(allocator: Allocator, marker_system: *markers, clock: *Clock) !Self {
+            // Create sentinel blocks
+            const left_sentinel = try allocator.create(Block);
+            const right_sentinel = try allocator.create(Block);
+
+            // Initialize left sentinel
+            left_sentinel.* = Block{
+                .id = ID.SENTINEL_LEFT,
+                .left_origin = null,
+                .right_origin = null,
+                .left = null,
+                .right = right_sentinel,
+                .content = "",
+            };
+
+            // Initialize right sentinel
+            right_sentinel.* = Block{
+                .id = ID.SENTINEL_RIGHT,
+                .left_origin = null,
+                .right_origin = null,
+                .left = left_sentinel,
+                .right = null,
+                .content = "",
+            };
+
             return Self{
+                .start = left_sentinel,
+                .curr = null,
+                .length = 0,
                 .allocator = allocator,
                 .marker_system = marker_system,
                 .monotonic_clock = clock,
             };
+        }
+
+        pub fn tryAssignNeighbors(self: *Self, block: *Block) bool {
+            if (block.left_origin == null or block.right_origin == null) {
+                return false;
+            }
+
+            const left_block = self.get_block_by_id(block.left_origin.?);
+            const right_block = self.get_block_by_id(block.right_origin.?);
+
+            if (left_block == null or right_block == null) {
+                std.debug.print("Block {any} missing neighbors: left={?}, right={?}\n", .{ block.id, left_block, right_block });
+                return false;
+            }
+
+            // Check if blocks are consecutive
+            if (left_block.?.right == right_block) {
+                block.left = left_block;
+                block.right = right_block;
+                return true;
+            }
+
+            std.debug.print("Blocks not consecutive for {any}: left={any}, right={any}\n", .{ block.id, left_block.?.id, right_block.?.id });
+            return false;
         }
 
         pub fn get_block_by_id(self: Self, id: ID) ?*Block {
@@ -200,48 +277,56 @@ pub fn BlockStoreType() type {
         // TODO: the first and the last element should not have empty left/ right origins
         // add a special char or id to handle this
         // otherwise it's preventing to identify case 3 of conflict resolution
-        pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
-            // allocate memory for new block
+        pub fn insert_text(self: *Self, index: usize, text: []const u8) !void {
+            // Allocate memory for new block
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
 
-            // find the neighbor via the marker system
+            // Find the neighbor via marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => try self.marker_system.new(index, new_block),
                 else => unreachable,
             };
 
-            // attach left and right neighbors
-            if (index < self.length) {
-                // add items in the middle of the list
-                // the marker system will find us exactly where this block needs to be added
+            // Handle first insertion (between sentinels)
+            if (self.length == 0) {
+                const left_sentinel = self.start.?;
+                const right_sentinel = left_sentinel.right.?;
+
+                new_block.left = left_sentinel;
+                new_block.right = right_sentinel;
+                new_block.left_origin = left_sentinel.id;
+                new_block.right_origin = right_sentinel.id;
+
+                left_sentinel.right = new_block;
+                right_sentinel.left = new_block;
+            } else if (index < self.length) {
+                // Add items in the middle
                 new_block.left = m.item.left;
                 new_block.left_origin = m.item.left.?.id;
                 new_block.right = m.item;
                 new_block.right_origin = m.item.id;
                 new_block.left.?.right = new_block;
                 m.item.left = new_block;
-            } else if (self.start == null) {
-                // add first item
-                new_block.left_origin = ID.id(SPECIAL_CLOCK_LEFT, 1);
-                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
-                self.start = new_block;
             } else {
-                // add items that are appended
+                // Add items at the end (before right sentinel)
+                const right_sentinel = m.item.right.?;
                 m.item.right = new_block;
-                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
+                new_block.right_origin = right_sentinel.id;
                 new_block.left = m.item;
                 new_block.left_origin = m.item.id;
+                new_block.right = right_sentinel;
+                right_sentinel.left = new_block;
             }
 
             self.length += text.len;
         }
 
-        pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
-            var next = self.start;
-            while (next != null) {
+        pub fn content(self: *Self, allocator: *std.ArrayList(u8)) !void {
+            var next = self.start.?.right; // Skip left sentinel
+            while (next != null and next.?.id.clock != SPECIAL_CLOCK_RIGHT) {
                 try allocator.appendSlice(next.?.content);
-                next = next.?.right orelse break;
+                next = next.?.right;
             }
         }
 
@@ -252,7 +337,6 @@ pub fn BlockStoreType() type {
         }
 
         // caller should take care of adding the block to the respective dot cloud
-        // TODO: assert origins exist for the block before executing anything in this function
         pub fn integrate(self: *Self, block: *Block) anyerror!void {
             std.debug.assert(block.left_origin != null and block.right_origin != null);
 
