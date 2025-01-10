@@ -197,6 +197,7 @@ pub fn BlockStoreType() type {
             };
         }
 
+        // TODO: mimic getMissing function from the yjs implementation
         pub fn tryAssignNeighbors(self: *Self, block: *Block) bool {
             if (block.left_origin == null or block.right_origin == null) {
                 return false;

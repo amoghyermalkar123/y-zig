@@ -48,6 +48,7 @@ pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, all
             // allocate some space for this block
             const blk = try store.allocate_block(block);
 
+            std.debug.print("apply starts for :{s}\n", .{block.content});
             // if we cannot assign neighbors to this block, the pending struct will reference the blk pointer
             if (!store.tryAssignNeighbors(blk)) {
                 try result.pending.addPending(blk);
