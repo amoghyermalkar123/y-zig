@@ -1,6 +1,7 @@
 const std = @import("std");
 const search_marker = @import("search_marker.zig");
 const Block = search_marker.Block;
+const BlockStore = @import("search_marker.zig").BlockStoreType();
 const SPECIAL_CLOCK_LEFT = search_marker.SPECIAL_CLOCK_LEFT;
 const SPECIAL_CLOCK_RIGHT = search_marker.SPECIAL_CLOCK_RIGHT;
 const Clock = @import("global_clock.zig").MonotonicClock;
@@ -35,7 +36,7 @@ pub const UpdateResult = struct {
 
 // TODO: refer yjs to understand the algorithm and figure out pre-requisite items we need
 // to take care of before calling integrate on a block
-pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, allocator: std.mem.Allocator) !UpdateResult {
+pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Updates) !UpdateResult {
     var result = UpdateResult{
         .pending = PendingStruct.init(allocator),
     };
@@ -45,27 +46,30 @@ pub fn apply_update(store: *search_marker.BlockStoreType(), update: Updates, all
         const blocks = entry.value_ptr.*;
 
         for (blocks.items) |block| {
-            // allocate some space for this block
+            // Allocate space for this block
             const blk = try store.allocate_block(block);
 
-            std.debug.print("apply starts for :{s}\n", .{block.content});
-            // if we cannot assign neighbors to this block, the pending struct will reference the blk pointer
-            if (!store.tryAssignNeighbors(blk)) {
+            // Check if we have all dependencies
+            if (store.getMissing(blk)) |missing_client| {
+                // We're missing updates from this client
                 try result.pending.addPending(blk);
+                std.log.info("Block {any} pending on updates from client {d}", .{ blk.id, missing_client });
                 continue;
             }
 
-            // if we were able to assign the neighbors, we continue with integration and the block store
-            // will reference the blk pointer
+            // Try to integrate
             store.integrate(blk) catch |err| {
                 try result.pending.addPending(blk);
                 std.log.err("Integration failed for block {any}: {any}", .{ blk.id, err });
                 continue;
             };
 
+            // Update state after successful integration
+            try store.updateState(blk);
             std.log.info("Successfully integrated block {any}", .{blk.id});
         }
     }
+
     return result;
 }
 
@@ -168,7 +172,7 @@ test "concurrent client updates" {
     try updates.put(1, &blocks_list);
 
     // Apply update
-    const result = try apply_update(&store, .{ .updates = &updates }, allocator);
+    const result = try apply_update(allocator, &store, .{ .updates = &updates });
 
     // Debug state
     std.debug.print("\nFinal state:\n", .{});
@@ -185,4 +189,39 @@ test "concurrent client updates" {
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ABC", content);
     try t.expect(result.pending.blocks.count() == 0);
+}
+
+test "getMissing basic checks" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
+    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
+    var store = try BlockStore.init(allocator, &marker_system, &clk);
+
+    // Add first block from client 1
+    const block_a = try store.allocate_block(Block.makeFirstBlock(ID.id(1, 1), // clock 1, client 1
+        "A"));
+    try store.integrate(block_a);
+    try store.updateState(block_a);
+
+    // Try to integrate block from client 2 that references block A
+    const block_b = try store.allocate_block(Block.block(ID.id(1, 2), // clock 1, client 2
+        "B"));
+    block_b.left_origin = block_a.id;
+    block_b.right_origin = ID.SENTINEL_RIGHT;
+
+    // Should have no missing dependencies
+    try t.expectEqual(@as(?u64, null), try store.getMissing(block_b));
+
+    // Try to integrate block that references future update
+    const block_c = try store.allocate_block(Block.block(ID.id(1, 3), // clock 1, client 3
+        "C"));
+    block_c.left_origin = ID.id(5, 1); // Clock 5 from client 1 which we don't have
+    block_c.right_origin = ID.SENTINEL_RIGHT;
+
+    // Should be missing updates from client 1
+    try t.expectEqual(@as(?u64, 1), try block_c.getMissing(&store));
 }

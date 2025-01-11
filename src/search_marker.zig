@@ -4,6 +4,7 @@ const Set = @import("ziglangSet");
 
 const Allocator = std.mem.Allocator;
 
+const LOCAL_CLIENT = 1;
 pub const SPECIAL_CLOCK_LEFT = 0;
 pub const SPECIAL_CLOCK_RIGHT = 1;
 
@@ -159,6 +160,7 @@ pub fn BlockStoreType() type {
         allocator: Allocator,
         marker_system: *markers,
         monotonic_clock: *Clock,
+        state_vector: std.AutoHashMap(u64, u64),
 
         const Self = @This();
 
@@ -166,6 +168,8 @@ pub fn BlockStoreType() type {
             // Create sentinel blocks
             const left_sentinel = try allocator.create(Block);
             const right_sentinel = try allocator.create(Block);
+            var state_vector = std.AutoHashMap(u64, u64).init(allocator);
+            try state_vector.put(LOCAL_CLIENT, 1);
 
             // Initialize left sentinel
             left_sentinel.* = Block{
@@ -194,7 +198,53 @@ pub fn BlockStoreType() type {
                 .allocator = allocator,
                 .marker_system = marker_system,
                 .monotonic_clock = clock,
+                .state_vector = state_vector,
             };
+        }
+
+        pub fn getState(self: *Self, client: u64) u64 {
+            return self.state_vector.get(client) orelse 0;
+        }
+
+        pub fn updateState(self: *Self, block: *Block) !void {
+            const current = self.getState(block.id.client);
+            if (block.id.clock > current) {
+                try self.state_vector.put(block.id.client, block.id.clock);
+            }
+        }
+
+        // Returns the client ID if we're missing updates, null if we have everything
+        pub fn getMissing(self: *Self, block: *Block) ?u64 {
+            // Skip checking origin reference if it's a sentinel
+            if (block.left_origin) |origin| {
+                // If origin is from another client and we don't have its clock yet
+                if (origin.client != block.id.client and
+                    origin.clock >= self.getState(origin.client))
+                {
+                    return origin.client;
+                }
+            }
+
+            // Skip checking right origin if it's a sentinel
+            if (block.right_origin) |r_origin| {
+                // If right origin is from another client and we don't have its clock yet
+                if (r_origin.client != block.id.client and
+                    r_origin.clock >= self.getState(r_origin.client))
+                {
+                    return r_origin.client;
+                }
+            }
+
+            // We have all dependencies, try to find actual blocks
+            if (block.left_origin) |origin| {
+                block.left = self.get_block_by_id(origin) orelse return origin.client;
+            }
+
+            if (block.right_origin) |r_origin| {
+                block.right = self.get_block_by_id(r_origin) orelse return r_origin.client;
+            }
+
+            return null;
         }
 
         // TODO: mimic getMissing function from the yjs implementation
