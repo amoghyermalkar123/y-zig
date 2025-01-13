@@ -69,7 +69,6 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
             std.log.info("Successfully integrated block {any}", .{blk.id});
         }
     }
-
     return result;
 }
 
@@ -202,14 +201,12 @@ test "getMissing basic checks" {
     var store = try BlockStore.init(allocator, &marker_system, &clk);
 
     // Add first block from client 1
-    const block_a = try store.allocate_block(Block.makeFirstBlock(ID.id(1, 1), // clock 1, client 1
-        "A"));
+    const block_a = try store.allocate_block(Block.makeFirstBlock(ID.id(1, 1), "A"));
     try store.integrate(block_a);
     try store.updateState(block_a);
 
     // Try to integrate block from client 2 that references block A
-    const block_b = try store.allocate_block(Block.block(ID.id(1, 2), // clock 1, client 2
-        "B"));
+    const block_b = try store.allocate_block(Block.block(ID.id(1, 2), "B"));
     block_b.left_origin = block_a.id;
     block_b.right_origin = ID.SENTINEL_RIGHT;
 
@@ -217,11 +214,10 @@ test "getMissing basic checks" {
     try t.expectEqual(@as(?u64, null), try store.getMissing(block_b));
 
     // Try to integrate block that references future update
-    const block_c = try store.allocate_block(Block.block(ID.id(1, 3), // clock 1, client 3
-        "C"));
+    var block_c = try store.allocate_block(Block.block(ID.id(1, 3), "C"));
     block_c.left_origin = ID.id(5, 1); // Clock 5 from client 1 which we don't have
     block_c.right_origin = ID.SENTINEL_RIGHT;
 
     // Should be missing updates from client 1
-    try t.expectEqual(@as(?u64, 1), try block_c.getMissing(&store));
+    try t.expectEqual(@as(?u64, 1), try store.getMissing(block_c));
 }

@@ -206,6 +206,8 @@ pub fn BlockStoreType() type {
             return self.state_vector.get(client) orelse 0;
         }
 
+        // ponder: if someone gives a clock of 10 and highest value watched is 5
+        // that would case this sv to misrepresent dot cloud space.
         pub fn updateState(self: *Self, block: *Block) !void {
             const current = self.getState(block.id.client);
             if (block.id.clock > current) {
@@ -214,62 +216,45 @@ pub fn BlockStoreType() type {
         }
 
         // Returns the client ID if we're missing updates, null if we have everything
-        pub fn getMissing(self: *Self, block: *Block) ?u64 {
+        pub fn getMissing(self: *Self, block: *Block) !?u64 {
             // Skip checking origin reference if it's a sentinel
             if (block.left_origin) |origin| {
-                // If origin is from another client and we don't have its clock yet
+                // If origin is from another client and we have a gap between the referenced origins clock vs
+                // what we have locally for the same client. this is indicating that we are getting a remote
+                // block whose left origin has a much higher clock for a client than what we see locally
+                // for the same client
                 if (origin.client != block.id.client and
-                    origin.clock >= self.getState(origin.client))
+                    // TODO: yjs uses >= for some reason, i have not figured out yet so i will go with > only since it makes
+                    // sense to me
+                    origin.clock > self.getState(origin.client))
                 {
                     return origin.client;
                 }
             }
 
-            // Skip checking right origin if it's a sentinel
+            // same logic as above but for right origin
             if (block.right_origin) |r_origin| {
                 // If right origin is from another client and we don't have its clock yet
                 if (r_origin.client != block.id.client and
-                    r_origin.clock >= self.getState(r_origin.client))
+                    r_origin.clock > self.getState(r_origin.client))
                 {
+                    std.debug.print("found right gap\n", .{});
                     return r_origin.client;
                 }
             }
 
-            // We have all dependencies, try to find actual blocks
+            // We have all dependencies, try to find actual blocks, if not found, simply return the client id
             if (block.left_origin) |origin| {
+                std.debug.print("bhai\n", .{});
                 block.left = self.get_block_by_id(origin) orelse return origin.client;
             }
 
             if (block.right_origin) |r_origin| {
+                std.debug.print("bhai2\n", .{});
                 block.right = self.get_block_by_id(r_origin) orelse return r_origin.client;
             }
 
             return null;
-        }
-
-        // TODO: mimic getMissing function from the yjs implementation
-        pub fn tryAssignNeighbors(self: *Self, block: *Block) bool {
-            if (block.left_origin == null or block.right_origin == null) {
-                return false;
-            }
-
-            const left_block = self.get_block_by_id(block.left_origin.?);
-            const right_block = self.get_block_by_id(block.right_origin.?);
-
-            if (left_block == null or right_block == null) {
-                std.debug.print("Block {any} missing neighbors: left={?}, right={?}\n", .{ block.id, left_block, right_block });
-                return false;
-            }
-
-            // Check if blocks are consecutive
-            if (left_block.?.right == right_block) {
-                block.left = left_block;
-                block.right = right_block;
-                return true;
-            }
-
-            std.debug.print("Blocks not consecutive for {any}: left={any}, right={any}\n", .{ block.id, left_block.?.id, right_block.?.id });
-            return false;
         }
 
         pub fn get_block_by_id(self: Self, id: ID) ?*Block {
@@ -288,46 +273,6 @@ pub fn BlockStoreType() type {
             return new_block;
         }
 
-        // this function should only be called in certain scenarios when a block actually requires
-        // splitting, the caller needs to have all checks in place before calling this function
-        // we dont want to split weirdly
-        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
-            // split a block into multiple which have the same client id
-            // with left and right neighbors adjusted
-            std.debug.print("{d}.{d}.{d}\n", .{ m.pos, m.item.content.len, index });
-            const split_point = m.pos + m.item.content.len - index;
-
-            var bufal = std.ArrayList(u8).init(self.allocator);
-            errdefer bufal.deinit();
-
-            try bufal.appendSlice(m.item.content[0..split_point]);
-            const textl = try bufal.toOwnedSlice();
-            const left = Block.block(new_block.id, textl);
-
-            try bufal.appendSlice(m.item.content[split_point..]);
-            const text = try bufal.toOwnedSlice();
-            const right = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
-
-            const left_ptr = try self.allocator.create(Block);
-            left_ptr.* = left;
-
-            const right_ptr = try self.allocator.create(Block);
-            right_ptr.* = right;
-
-            self.allocator.destroy(m.item);
-
-            try self.marker_system.overwrite(split_point, left_ptr);
-
-            left_ptr.*.right = new_block;
-            new_block.*.left = left_ptr;
-            new_block.*.right = right_ptr;
-            right_ptr.*.left = new_block;
-        }
-
-        // TODO: support multi-character inputs
-        // TODO: the first and the last element should not have empty left/ right origins
-        // add a special char or id to handle this
-        // otherwise it's preventing to identify case 3 of conflict resolution
         pub fn insert_text(self: *Self, index: usize, text: []const u8) !void {
             // Allocate memory for new block
             const new_block = try self.allocator.create(Block);
