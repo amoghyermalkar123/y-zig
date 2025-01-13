@@ -51,7 +51,7 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
 
             // Check if we have all dependencies
             if (store.getMissing(blk)) |missing_client| {
-                // We're missing updates from this client
+                // We're missing updates from this client, add to pending queue
                 try result.pending.addPending(blk);
                 std.log.info("Block {any} pending on updates from client {d}", .{ blk.id, missing_client });
                 continue;
@@ -59,6 +59,7 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
 
             // Try to integrate
             store.integrate(blk) catch |err| {
+                // if failed to integrate this block, add to pending queue
                 try result.pending.addPending(blk);
                 std.log.err("Integration failed for block {any}: {any}", .{ blk.id, err });
                 continue;
