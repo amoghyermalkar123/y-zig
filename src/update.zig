@@ -34,8 +34,8 @@ pub const UpdateResult = struct {
     pending: PendingStruct,
 };
 
-// TODO: refer yjs to understand the algorithm and figure out pre-requisite items we need
-// to take care of before calling integrate on a block
+// TODO: final check for this function, see if are yet to add anything from yjs impl and add
+// the base version atleast is ready, tests passing
 pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Updates) !UpdateResult {
     var result = UpdateResult{
         .pending = PendingStruct.init(allocator),
