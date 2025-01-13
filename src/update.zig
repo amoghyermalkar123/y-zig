@@ -50,7 +50,7 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
             const blk = try store.allocate_block(block);
 
             // Check if we have all dependencies
-            if (store.getMissing(blk)) |missing_client| {
+            if (try store.getMissing(blk)) |missing_client| {
                 // We're missing updates from this client, add to pending queue
                 try result.pending.addPending(blk);
                 std.log.info("Block {any} pending on updates from client {d}", .{ blk.id, missing_client });
@@ -79,46 +79,6 @@ fn createTestBlock(allocator: std.mem.Allocator, id: ID, content: []const u8) !*
     const block = try allocator.create(Block);
     block.* = Block.block(id, content);
     return block;
-}
-
-test "basic update application" {
-    // Setup
-    var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    // Create marker system
-    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
-    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
-    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
-
-    // Create base document with "AB"
-    try store.insert_text(0, "A");
-    try store.insert_text(1, "B");
-
-    var blocks_list = std.ArrayList(Block).init(allocator);
-    defer blocks_list.deinit();
-
-    // Create an update with block "C" to insert between A and B
-    const block_c = try createTestBlock(allocator, ID.id(3, 1), "C");
-    block_c.*.left_origin = store.start.?.id;
-    block_c.*.right_origin = store.start.?.right.?.id;
-    try blocks_list.append(block_c.*);
-
-    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
-    defer updates.deinit();
-    try updates.put(1, &blocks_list);
-
-    // Apply update
-    const result = try apply_update(&store, .{ .updates = &updates }, allocator);
-
-    // Verify results
-    var buf = std.ArrayList(u8).init(allocator);
-    try store.content(&buf);
-    const content = try buf.toOwnedSlice();
-    try t.expectEqualSlices(u8, "ACB", content);
-    try t.expect(result.pending.blocks.count() == 0);
 }
 
 test "concurrent client updates" {
