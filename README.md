@@ -13,6 +13,7 @@ focusing only on the text based data structure as of now.
 Phase 1: Only focus on Single character content
 - Items:
   [X] implement integration logic (local insert)
+  [X] basic state vector impl for remote block integ
 
 Phase 2: add support for a proper string content
 - Items:
