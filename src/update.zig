@@ -84,7 +84,7 @@ fn createTestBlock(allocator: std.mem.Allocator, id: ID, content: []const u8) !*
     return block;
 }
 
-test "apply_update: concurrent client updates: happy-flow" {
+test "apply_update: concurrent client updates:in the middle: happy-flow" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -148,4 +148,186 @@ test "apply_update: concurrent client updates: happy-flow" {
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ACDB", content);
     try t.expect(result.pending.blocks.count() == 0);
+}
+
+test "apply_update: concurrent client updates:at the end: happy-flow" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Setup marker system
+    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
+    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
+    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial document: "AB"
+    try store.insert_text(0, "A");
+    try store.insert_text(1, "B");
+
+    // Get base blocks
+    const block_a = store.start.?;
+    const block_b = block_a.right.?;
+
+    // Create concurrent blocks to append at the end
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    // Create block C: should append after B
+    const block_c = try createTestBlock(allocator, ID.id(2, 2), "C");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "C",
+        .left_origin = block_b.id,
+        .right_origin = ID.id(SENTINEL_RIGHT, 1), // Points to end sentinel
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    // Create block D: also appends after B
+    const block_d = try createTestBlock(allocator, ID.id(2, 4), "D");
+    block_d.* = Block{
+        .id = block_d.id,
+        .content = "D",
+        .left_origin = block_b.id,
+        .right_origin = ID.id(SENTINEL_RIGHT, 1),
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_d.*);
+
+    // Setup updates
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+    try updates.put(1, &blocks_list);
+
+    // Apply update
+    const result = try apply_update(allocator, &store, .{ .updates = &updates });
+
+    // Verify content - should be ABCD since C has lower client clock than D
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    try t.expectEqualSlices(u8, "ABCD", content);
+    try t.expect(result.pending.blocks.count() == 0);
+}
+
+test "apply_update: concurrent client updates:at the start: happy-flow" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Setup marker system
+    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
+    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
+    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial document: "AB"
+    try store.insert_text(0, "A");
+    try store.insert_text(1, "B");
+
+    // Get base blocks
+    const block_a = store.start.?;
+
+    // Create concurrent blocks to insert at start
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    // Create block C: insert at start
+    const block_c = try createTestBlock(allocator, ID.id(2, 2), "C");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "C",
+        .left_origin = ID.id(SENTINEL_LEFT, 1), // Points to start sentinel
+        .right_origin = block_a.id,
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    // Create block D: also insert at start
+    const block_d = try createTestBlock(allocator, ID.id(2, 4), "D");
+    block_d.* = Block{
+        .id = block_d.id,
+        .content = "D",
+        .left_origin = ID.id(SENTINEL_LEFT, 1),
+        .right_origin = block_a.id,
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_d.*);
+
+    // Setup updates
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+    try updates.put(1, &blocks_list);
+
+    // Apply update
+    const result = try apply_update(allocator, &store, .{ .updates = &updates });
+
+    // Verify content - should be CDAB since C has lower client clock than D
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    try t.expectEqualSlices(u8, "CDAB", content);
+    try t.expect(result.pending.blocks.count() == 0);
+}
+
+test "apply_update: concurrent client updates:missing blocks" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Setup marker system
+    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
+    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
+    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+
+    // Create initial document: "A"
+    try store.insert_text(0, "A");
+
+    // Get base block
+    const block_a = store.start.?;
+
+    // Create blocks with missing dependencies
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    // Create block C that depends on missing block B
+    const missing_block_id = ID.id(3, 1); // Block B that doesn't exist yet
+    const block_c = try createTestBlock(allocator, ID.id(2, 2), "C");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "C",
+        .left_origin = missing_block_id, // Points to non-existent block
+        .right_origin = block_a.id,
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    // Setup updates
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+    try updates.put(1, &blocks_list);
+
+    // Apply update
+    const result = try apply_update(allocator, &store, .{ .updates = &updates });
+
+    // Verify that block was added to pending
+    try t.expect(result.pending.blocks.count() == 1);
+
+    // Verify that the block in pending is our block C
+    const block_c_in_pending = result.pending.blocks.get(block_c.id);
+    try t.expect(block_c_in_pending != null);
+    try t.expect(std.mem.eql(u8, block_c_in_pending.?.content, "C"));
+
+    // Verify document content is unchanged
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    try t.expectEqualSlices(u8, "A", content);
 }
