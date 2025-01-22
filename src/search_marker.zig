@@ -1,11 +1,11 @@
 const std = @import("std");
 const Clock = @import("global_clock.zig").MonotonicClock;
-const Set = @import("ziglangSet");
 
 const Allocator = std.mem.Allocator;
 
-const SPECIAL_CLOCK_LEFT = 0;
-const SPECIAL_CLOCK_RIGHT = 1;
+const LOCAL_CLIENT = 1;
+pub const SPECIAL_CLOCK_LEFT = 0;
+pub const SPECIAL_CLOCK_RIGHT = 1;
 
 pub const ID = struct {
     clock: u64,
@@ -133,14 +133,19 @@ pub fn BlockStoreType() type {
         allocator: Allocator,
         marker_system: *markers,
         monotonic_clock: *Clock,
+        state_vector: std.AutoHashMap(u64, u64),
 
         const Self = @This();
 
         pub fn init(allocator: Allocator, marker_system: *markers, clock: *Clock) Self {
+            var state_vector = std.AutoHashMap(u64, u64).init(allocator);
+            state_vector.put(LOCAL_CLIENT, 1) catch unreachable;
+
             return Self{
                 .allocator = allocator,
                 .marker_system = marker_system,
                 .monotonic_clock = clock,
+                .state_vector = state_vector,
             };
         }
 
@@ -153,40 +158,67 @@ pub fn BlockStoreType() type {
             return next;
         }
 
-        // this function should only be called in certain scenarios when a block actually requires
-        // splitting, the caller needs to have all checks in place before calling this function
-        // we dont want to split weirdly
-        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
-            // split a block into multiple which have the same client id
-            // with left and right neighbors adjusted
-            std.debug.print("{d}.{d}.{d}\n", .{ m.pos, m.item.content.len, index });
-            const split_point = m.pos + m.item.content.len - index;
+        pub fn getState(self: *Self, client: u64) u64 {
+            return self.state_vector.get(client) orelse 0;
+        }
 
-            var bufal = std.ArrayList(u8).init(self.allocator);
-            errdefer bufal.deinit();
+        // TODO: ponder: if someone gives a clock of 10 and highest value watched is 5
+        // that would case this sv to misrepresent dot cloud space.
+        pub fn updateState(self: *Self, block: *Block) !void {
+            const current = self.getState(block.id.client);
+            if (block.id.clock > current) {
+                try self.state_vector.put(block.id.client, block.id.clock);
+            }
+        }
 
-            try bufal.appendSlice(m.item.content[0..split_point]);
-            const textl = try bufal.toOwnedSlice();
-            const left = Block.block(new_block.id, textl);
+        // will allocate some space in memory and return the pointer to it.
+        pub fn allocate_block(self: *Self, block: Block) !*Block {
+            const new_block = try self.allocator.create(Block);
+            new_block.* = block;
+            return new_block;
+        }
 
-            try bufal.appendSlice(m.item.content[split_point..]);
-            const text = try bufal.toOwnedSlice();
-            const right = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
+        // Returns the client ID if we're missing updates, null if we have everything
+        pub fn getMissing(self: *Self, block: *Block) !?u64 {
+            // Skip checking origin reference if it's a sentinel
+            if (block.left_origin) |origin| {
+                // If origin is from another client and we have a gap between the referenced origins clock vs
+                // what we have locally for the same client. this is indicating that we are getting a remote
+                // block whose left origin has a much higher clock for a client than what we see locally
+                // for the same client
+                if (origin.client != block.id.client and
+                    // TODO: yjs uses >= for some reason, i have not figured out yet so i will go with > only since it makes
+                    // sense to me
+                    origin.clock > self.getState(origin.client))
+                {
+                    std.log.debug("missing from left origin || origin.client:{d} block.id.client:{d} origin.clock:{d} self.getState(origin.client): {d}\n", .{ origin.client, block.id.client, origin.clock, self.getState(origin.client) });
+                    return origin.client;
+                }
+            }
 
-            const left_ptr = try self.allocator.create(Block);
-            left_ptr.* = left;
+            // same logic as above but for right origin
+            if (block.right_origin) |r_origin| {
+                // If right origin is from another client and we don't have its clock yet
+                if (r_origin.client != block.id.client and
+                    r_origin.clock > self.getState(r_origin.client))
+                {
+                    std.log.debug("missing from right origin", .{});
+                    return r_origin.client;
+                }
+            }
 
-            const right_ptr = try self.allocator.create(Block);
-            right_ptr.* = right;
+            // We have all dependencies, try to find actual blocks, if not found, simply return the client id
+            if (block.left_origin) |origin| {
+                std.log.debug("finding block for lefto ", .{});
+                block.left = self.get_block_by_id(origin) orelse return origin.client;
+            }
 
-            self.allocator.destroy(m.item);
+            if (block.right_origin) |r_origin| {
+                std.log.debug("finding block for righto", .{});
+                block.right = self.get_block_by_id(r_origin) orelse return r_origin.client;
+            }
 
-            try self.marker_system.overwrite(split_point, left_ptr);
-
-            left_ptr.*.right = new_block;
-            new_block.*.left = left_ptr;
-            new_block.*.right = right_ptr;
-            right_ptr.*.left = new_block;
+            return null;
         }
 
         // TODO: support multi-character inputs
@@ -196,7 +228,7 @@ pub fn BlockStoreType() type {
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             // allocate memory for new block
             const new_block = try self.allocator.create(Block);
-            new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), 1), text);
+            new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
 
             // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
@@ -228,6 +260,7 @@ pub fn BlockStoreType() type {
             }
 
             self.length += text.len;
+            try self.updateState(new_block);
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
