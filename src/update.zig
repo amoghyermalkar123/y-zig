@@ -53,10 +53,10 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
             std.log.info("Trying Block {s}\n", .{blk.content});
 
             // Check if we have all dependencies
-            if (try store.getMissing(blk)) |missing_client| {
+            if (try store.getMissing(blk) != null) {
                 // We're missing updates from this client, add to pending queue
                 try result.pending.addPending(blk);
-                std.log.info("Block {any} pending on updates from client {d}", .{ blk.id, missing_client });
+                std.log.info("Block {any} pending on updates from client", .{blk.id});
                 continue;
             }
 
@@ -179,7 +179,7 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
         .id = block_c.id,
         .content = "C",
         .left_origin = block_b.id,
-        .right_origin = ID.id(SENTINEL_RIGHT, 1), // Points to end sentinel
+        .right_origin = ID.id(SENTINEL_RIGHT, 2), // Points to end sentinel
         .left = null,
         .right = null,
     };
@@ -191,7 +191,7 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
         .id = block_d.id,
         .content = "D",
         .left_origin = block_b.id,
-        .right_origin = ID.id(SENTINEL_RIGHT, 1),
+        .right_origin = ID.id(SENTINEL_RIGHT, 4),
         .left = null,
         .right = null,
     };

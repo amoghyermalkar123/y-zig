@@ -149,12 +149,17 @@ pub fn BlockStoreType() type {
             };
         }
 
+        // TODO: optimize search
+        // when items being added at end from remote update, this will never match for the right origin
+        // because we are checking clock and client for right sentinel which will not match
+        // TODO: figure this out now
         pub fn get_block_by_id(self: Self, id: ID) ?*Block {
             var next = self.start;
             while (next != null) {
                 if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next;
                 next = next.?.right;
             }
+            std.debug.print("block returning: {any}\n", .{next});
             return next;
         }
 
@@ -208,14 +213,21 @@ pub fn BlockStoreType() type {
             }
 
             // We have all dependencies, try to find actual blocks, if not found, simply return the client id
+            //
+            // no gaps, safe to assign the left origin as the left neighbor
             if (block.left_origin) |origin| {
                 std.log.debug("finding block for lefto ", .{});
-                block.left = self.get_block_by_id(origin) orelse return origin.client;
+                // assign left neighbor, if we dont find the left origin block in our blockstore
+                // return the origins client as missing client
+                block.left = self.get_block_by_id(origin);
             }
 
+            // no gaps, safe to assign the right origin as the right neighbor
             if (block.right_origin) |r_origin| {
                 std.log.debug("finding block for righto", .{});
-                block.right = self.get_block_by_id(r_origin) orelse return r_origin.client;
+                // assign right neighbor, if we dont find the right origin block in our blockstore
+                // return the origins client as missing client
+                block.right = self.get_block_by_id(r_origin);
             }
 
             return null;
