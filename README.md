@@ -16,6 +16,7 @@ Phase 1: Only focus on Single character content
   [X] basic state vector impl for remote block integ
   [] more tests for remote update integ
   [] final phase 1 review
+  [] replay system (debug util)
 
 Phase 2: add support for a proper string content
 - Items:
