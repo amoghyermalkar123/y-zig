@@ -418,6 +418,10 @@ pub fn BlockStoreType() type {
                 block.right = right;
                 block.left.?.right = block;
             } else {
+                block.right = self.start;
+                self.start.?.left = block;
+                self.start = block;
+
                 std.debug.print("block.left is null left neighbor reconnection failed :( \n", .{});
             }
 

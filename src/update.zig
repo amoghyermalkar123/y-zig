@@ -240,7 +240,7 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     block_c.* = Block{
         .id = block_c.id,
         .content = "C",
-        .left_origin = ID.id(SENTINEL_LEFT, 1), // Points to start sentinel
+        .left_origin = ID.id(SENTINEL_LEFT, 2), // Points to start sentinel
         .right_origin = block_a.id,
         .left = null,
         .right = null,
@@ -252,7 +252,7 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     block_d.* = Block{
         .id = block_d.id,
         .content = "D",
-        .left_origin = ID.id(SENTINEL_LEFT, 1),
+        .left_origin = ID.id(SENTINEL_LEFT, 4),
         .right_origin = block_a.id,
         .left = null,
         .right = null,
