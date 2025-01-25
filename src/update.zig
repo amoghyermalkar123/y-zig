@@ -1,9 +1,9 @@
 const std = @import("std");
-const search_marker = @import("search_marker.zig");
+const search_marker = @import("block_store.zig");
 const Block = search_marker.Block;
-const BlockStore = @import("search_marker.zig").BlockStoreType();
-const SENTINEL_LEFT = @import("search_marker.zig").SPECIAL_CLOCK_LEFT;
-const SENTINEL_RIGHT = @import("search_marker.zig").SPECIAL_CLOCK_RIGHT;
+const BlockStore = @import("block_store.zig").BlockStoreType();
+const SENTINEL_LEFT = @import("block_store.zig").SPECIAL_CLOCK_LEFT;
+const SENTINEL_RIGHT = @import("block_store.zig").SPECIAL_CLOCK_RIGHT;
 
 const Clock = @import("global_clock.zig").MonotonicClock;
 const ID = search_marker.ID;
@@ -23,7 +23,6 @@ pub const PendingStruct = struct {
 
     pub fn addPending(self: *PendingStruct, block: *Block) !void {
         try self.blocks.put(block.id, block);
-        std.log.info("Block {any} added to pending", .{block.id});
     }
 };
 
@@ -50,27 +49,21 @@ pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Up
             // Allocate space for this block
             const blk = try store.allocate_block(block);
 
-            std.log.info("Trying Block {s}\n", .{blk.content});
-
             // Check if we have all dependencies
             if (try store.getMissing(blk) != null) {
                 // We're missing updates from this client, add to pending queue
                 try result.pending.addPending(blk);
-                std.log.info("Block {any} pending on updates from client", .{blk.id});
                 continue;
             }
 
             // Try to integrate
-            store.integrate(blk) catch |err| {
-                // if failed to integrate this block, add to pending queue
+            store.integrate(blk) catch {
                 try result.pending.addPending(blk);
-                std.log.err("Integration failed for block {any}: {any}", .{ blk.id, err });
                 continue;
             };
 
             // Update state after successful integration
             try store.updateState(blk);
-            std.log.info("Successfully integrated block {any}", .{blk.id});
         }
     }
     return result;

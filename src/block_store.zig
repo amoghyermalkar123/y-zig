@@ -159,7 +159,6 @@ pub fn BlockStoreType() type {
                 if (next.?.id.clock == id.clock and next.?.id.client == id.client) return next;
                 next = next.?.right;
             }
-            std.debug.print("block returning: {any}\n", .{next});
             return next;
         }
 
@@ -196,7 +195,6 @@ pub fn BlockStoreType() type {
                     // sense to me
                     origin.clock > self.getState(origin.client))
                 {
-                    std.log.debug("missing from left origin || origin.client:{d} block.id.client:{d} origin.clock:{d} self.getState(origin.client): {d}\n", .{ origin.client, block.id.client, origin.clock, self.getState(origin.client) });
                     return origin.client;
                 }
             }
@@ -207,7 +205,6 @@ pub fn BlockStoreType() type {
                 if (r_origin.client != block.id.client and
                     r_origin.clock > self.getState(r_origin.client))
                 {
-                    std.log.debug("missing from right origin", .{});
                     return r_origin.client;
                 }
             }
@@ -216,7 +213,6 @@ pub fn BlockStoreType() type {
             //
             // no gaps, safe to assign the left origin as the left neighbor
             if (block.left_origin) |origin| {
-                std.log.debug("finding block for lefto ", .{});
                 // assign left neighbor, if we dont find the left origin block in our blockstore
                 // return the origins client as missing client
                 block.left = self.get_block_by_id(origin);
@@ -224,7 +220,6 @@ pub fn BlockStoreType() type {
 
             // no gaps, safe to assign the right origin as the right neighbor
             if (block.right_origin) |r_origin| {
-                std.log.debug("finding block for righto", .{});
                 // assign right neighbor, if we dont find the right origin block in our blockstore
                 // return the origins client as missing client
                 block.right = self.get_block_by_id(r_origin);
@@ -294,7 +289,6 @@ pub fn BlockStoreType() type {
         pub fn integrate(self: *Self, block: *Block) anyerror!void {
             std.debug.assert(block.left_origin != null and block.right_origin != null);
 
-            std.debug.print("integrating : {s}\n", .{block.content});
             var isConflict = false;
             // this case check can be a false positive, if your blocks do no go through neighbor checking
             // before integrating this can act as a conflict (since remote blocks always come with empty left/right neighbors)
@@ -314,7 +308,6 @@ pub fn BlockStoreType() type {
             } else unreachable;
 
             if (isConflict) {
-                std.debug.print("==conflict detected==\n", .{});
                 // set the left pointer, this is used across the conflict resolution loop to figure out the new neighbors
                 // for ' block'
                 var left = block.left;
@@ -348,13 +341,8 @@ pub fn BlockStoreType() type {
                 var items_before_origin = std.AutoHashMap(ID, void).init(self.allocator);
                 defer items_before_origin.deinit();
 
-                std.debug.print("first conflict block set: {s}\n", .{o.?.content});
-
-                std.debug.print("=====conflict res logic starts=====\n", .{});
                 // conflict resolution loop starts
                 while (o != null and o != block.right) {
-                    std.debug.print("current conflicting item: {s}\n", .{o.?.content});
-
                     try items_before_origin.put(o.?.id, {});
                     try conflicting_items.put(o.?.id, {});
 
@@ -362,12 +350,10 @@ pub fn BlockStoreType() type {
                     if (o != null and BlockStoreType().compareIDs(o.?.left_origin, block.left_origin)) {
                         // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
                         if (o.?.id.client < block.id.client) {
-                            std.debug.print("CASE 1\n", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
                         } else if (o != null and BlockStoreType().compareIDs(o.?.right_origin, block.right_origin)) {
                             // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
-                            std.debug.print("CASE 2\n", .{});
                             break;
                         }
                         // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
@@ -376,34 +362,12 @@ pub fn BlockStoreType() type {
                     } else if (o.?.left_origin != null) {
                         const blk = self.get_block_by_id(o.?.left_origin.?);
 
-                        std.debug.print("IBO: \t", .{});
-                        var it = items_before_origin.keyIterator();
-                        var value = it.next();
-                        while (value != null) {
-                            std.debug.print("{s}, ", .{self.get_block_by_id(value.?.*).?.content});
-                            value = it.next();
-                        }
-                        std.debug.print("\n", .{});
-
-                        std.debug.print("CI: \t", .{});
-                        it = conflicting_items.keyIterator();
-                        value = it.next();
-                        while (value != null) {
-                            std.debug.print("{s}, ", .{self.get_block_by_id(value.?.*).?.content});
-                            value = it.next();
-                        }
-                        std.debug.print("\n", .{});
-
                         if (blk != null and items_before_origin.contains(blk.?.id) and !conflicting_items.contains(blk.?.id)) {
-                            std.debug.print("CASE 3\n", .{});
                             left = o.?;
                             conflicting_items.clearAndFree();
-                        } else {
-                            std.debug.print("SKIP\n", .{});
-                        }
+                        } else {}
                     } else {
                         // we might have found our left
-                        std.debug.print("WEIRD\n", .{});
                         break;
                     }
                     o = o.?.right;
@@ -421,18 +385,12 @@ pub fn BlockStoreType() type {
                 block.right = self.start;
                 self.start.?.left = block;
                 self.start = block;
-
-                std.debug.print("block.left is null left neighbor reconnection failed :( \n", .{});
             }
 
             // reconnect right neighbor
             if (block.right != null) {
                 block.right.?.left = block;
-            } else {
-                std.debug.print("block.right is null right neighbor reconnection failed :( \n", .{});
-            }
-
-            std.debug.print("=====conflict res logic ends=====\n", .{});
+            } else {}
         }
     };
 }
@@ -922,7 +880,6 @@ test "YATA origin ordering - concurrent operations" {
     // 4. Both X and Y come before their right origin (C)
     try t.expect(content.len == 4); // A,B,C + X,Y
 
-    std.debug.print("CONTENT: {s}\n", .{content});
     // Find positions of each character
     // const pos_a = std.mem.indexOf(u8, content, "A").?;
     const pos_b = std.mem.indexOf(u8, content, "B").?;

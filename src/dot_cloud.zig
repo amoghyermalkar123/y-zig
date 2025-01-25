@@ -1,5 +1,5 @@
 const std = @import("std");
-const BlockStore = @import("search_marker.zig").BlockStoreType();
+const BlockStore = @import("block_store.zig").BlockStoreType();
 
 const DotCloud = struct {
     block_store: ?*BlockStore,
