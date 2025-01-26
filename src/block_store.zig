@@ -2,6 +2,7 @@ const std = @import("std");
 const Clock = @import("global_clock.zig").MonotonicClock;
 
 const Allocator = std.mem.Allocator;
+const Log = @import("logs/log.zig");
 
 const LOCAL_CLIENT = 1;
 pub const SPECIAL_CLOCK_LEFT = 0;
@@ -126,6 +127,7 @@ pub fn SearchMarkerType() type {
 
 pub fn BlockStoreType() type {
     const markers = SearchMarkerType();
+
     return struct {
         start: ?*Block = null,
         curr: ?*Block = null,
@@ -134,18 +136,20 @@ pub fn BlockStoreType() type {
         marker_system: *markers,
         monotonic_clock: *Clock,
         state_vector: std.AutoHashMap(u64, u64),
+        logger: Log.Logger,
 
         const Self = @This();
 
         pub fn init(allocator: Allocator, marker_system: *markers, clock: *Clock) Self {
             var state_vector = std.AutoHashMap(u64, u64).init(allocator);
             state_vector.put(LOCAL_CLIENT, 1) catch unreachable;
-
+            const logger = Log.Logger.init(allocator, Log.LogConfig{ .append = true, .filepath = "test.log" }) catch unreachable;
             return Self{
                 .allocator = allocator,
                 .marker_system = marker_system,
                 .monotonic_clock = clock,
                 .state_vector = state_vector,
+                .logger = logger,
             };
         }
 
@@ -233,6 +237,7 @@ pub fn BlockStoreType() type {
         // add a special char or id to handle this
         // otherwise it's preventing to identify case 3 of conflict resolution
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
+            try self.logger.log(Log.LogLevel.info, "started insert_text", .{});
             // allocate memory for new block
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
