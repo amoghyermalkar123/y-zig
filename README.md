@@ -22,6 +22,7 @@ Phase 2: add support for a proper string content
 - Items:
   - implement block splitting
   - TBD
+  - debug mode (we should not compile the replay system when not in dev mode)
 
 Phase 3: Build on top of it:
 - state vector based delta awareness

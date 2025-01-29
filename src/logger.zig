@@ -1,4 +1,5 @@
 const std = @import("std");
+const ID = @import("block_store.zig").ID;
 
 pub const LogLevel = enum {
     debug,
@@ -16,29 +17,27 @@ pub const LogLevel = enum {
     }
 };
 
+pub const EventType = enum {
+    // block events
+    create,
+    delete,
+    // state vector events
+    state_vector_update,
+    // integration events
+    integration_start,
+    conflict_detected,
+    conflict_resolved,
+    integration_end,
+};
+
 pub const BlockLogEvent = struct {
-    event_type: []const u8,
-    block_id: struct {
-        clock: u64,
-        client: u64,
-    },
+    event_type: EventType,
+    block_id: ID,
     content: []const u8,
-    left_origin: ?struct {
-        clock: u64,
-        client: u64,
-    },
-    right_origin: ?struct {
-        clock: u64,
-        client: u64,
-    },
-    left: ?struct {
-        clock: u64,
-        client: u64,
-    },
-    right: ?struct {
-        clock: u64,
-        client: u64,
-    },
+    left_origin: ?ID,
+    right_origin: ?ID,
+    left: ?ID,
+    right: ?ID,
     timestamp: i64,
 };
 
@@ -50,10 +49,7 @@ pub const StateVectorLogEvent = struct {
 
 pub const IntegrationLogEvent = struct {
     phase: []const u8, // "start", "conflict_detected", "resolution_step", "complete"
-    block_id: struct {
-        clock: u64,
-        client: u64,
-    },
+    block_id: ID,
     details: []const u8,
     timestamp: i64,
 };
@@ -89,7 +85,6 @@ pub const StructuredLogger = struct {
         defer self.mutex.unlock();
 
         const json = try std.json.stringifyAlloc(self.allocator, .{
-            .type = "block_event",
             .data = event,
         }, .{});
         defer self.allocator.free(json);
@@ -103,7 +98,6 @@ pub const StructuredLogger = struct {
         defer self.mutex.unlock();
 
         const json = try std.json.stringifyAlloc(self.allocator, .{
-            .type = "state_vector",
             .data = event,
         }, .{});
         defer self.allocator.free(json);
@@ -117,7 +111,6 @@ pub const StructuredLogger = struct {
         defer self.mutex.unlock();
 
         const json = try std.json.stringifyAlloc(self.allocator, .{
-            .type = "integration",
             .data = event,
         }, .{});
         defer self.allocator.free(json);
@@ -135,8 +128,8 @@ test "basic logging" {
 
     // Log a block event
     try logger.logBlockEvent(.{
-        .event_type = "create",
-        .block_id = .{ .clock = 1, .client = 1 },
+        .event_type = .create,
+        .block_id = ID.id(1, 1),
         .content = "A",
         .left_origin = null,
         .right_origin = null,
@@ -155,7 +148,7 @@ test "basic logging" {
     // Log an integration event
     try logger.logIntegration(.{
         .phase = "start",
-        .block_id = .{ .clock = 1, .client = 1 },
+        .block_id = ID.id(1, 1),
         .details = "Starting integration of block A",
         .timestamp = std.time.timestamp(),
     });
