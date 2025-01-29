@@ -4,6 +4,7 @@ const Clock = @import("global_clock.zig").MonotonicClock;
 const Allocator = std.mem.Allocator;
 const Log = @import("logger.zig");
 
+// TODO: auto generate and persist this
 const LOCAL_CLIENT = 1;
 pub const SPECIAL_CLOCK_LEFT = 0;
 pub const SPECIAL_CLOCK_RIGHT = 1;
