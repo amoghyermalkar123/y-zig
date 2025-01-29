@@ -290,8 +290,8 @@ test "apply_update: concurrent client updates:missing blocks" {
     defer blocks_list.deinit();
 
     // Create block C that depends on missing block B
-    const missing_block_id = ID.id(3, 1); // Block B that doesn't exist yet
-    const block_c = try createTestBlock(allocator, ID.id(2, 2), "C");
+    const missing_block_id = ID.id(4, 2); // Block B that doesn't exist yet
+    const block_c = try createTestBlock(allocator, ID.id(5, 4), "C");
     block_c.* = Block{
         .id = block_c.id,
         .content = "C",
@@ -305,7 +305,7 @@ test "apply_update: concurrent client updates:missing blocks" {
     // Setup updates
     var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
     defer updates.deinit();
-    try updates.put(1, &blocks_list);
+    try updates.put(4, &blocks_list);
 
     // Apply update
     const result = try apply_update(allocator, &store, .{ .updates = &updates });
