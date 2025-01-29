@@ -229,7 +229,7 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     defer blocks_list.deinit();
 
     // Create block C: insert at start
-    const block_c = try createTestBlock(allocator, ID.id(2, 2), "C");
+    const block_c = try createTestBlock(allocator, ID.id(4, 2), "C");
     block_c.* = Block{
         .id = block_c.id,
         .content = "C",
@@ -240,8 +240,11 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     };
     try blocks_list.append(block_c.*);
 
+    var blocks_list_another = std.ArrayList(Block).init(allocator);
+    defer blocks_list_another.deinit();
+
     // Create block D: also insert at start
-    const block_d = try createTestBlock(allocator, ID.id(2, 4), "D");
+    const block_d = try createTestBlock(allocator, ID.id(4, 4), "D");
     block_d.* = Block{
         .id = block_d.id,
         .content = "D",
@@ -250,12 +253,13 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
         .left = null,
         .right = null,
     };
-    try blocks_list.append(block_d.*);
+    try blocks_list_another.append(block_d.*);
 
     // Setup updates
     var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
     defer updates.deinit();
-    try updates.put(1, &blocks_list);
+    try updates.put(2, &blocks_list);
+    try updates.put(4, &blocks_list_another);
 
     // Apply update
     const result = try apply_update(allocator, &store, .{ .updates = &updates });
