@@ -3,37 +3,53 @@ const Clock = @import("global_clock.zig").MonotonicClock;
 const BlockStore = @import("block_store.zig");
 const Thread = std.Thread;
 
+const TICKER = 1000000000;
+
+pub const Tag = enum {
+    block,
+    sv,
+};
+
+pub const Entity = union(Tag) {
+    block: *const BlockStore.BlockStoreType(),
+    sv: *const std.AutoHashMap(u64, u64),
+};
+
+pub const Callback = struct {
+    function: *const fn (Entity) void,
+    args: Entity,
+};
+
 pub const TaskLoop = struct {
     // read only pointer to the block store
     block_store: *const BlockStore.BlockStoreType(),
-    tasks: *std.ArrayList(*const fn (*const BlockStore.BlockStoreType()) void),
+    callbacks: *std.ArrayList(Callback),
 
     const Self = @This();
 
-    pub fn init(store: *const BlockStore.BlockStoreType(), tasks: *std.ArrayList(*const fn (*const BlockStore.BlockStoreType()) void)) Self {
+    pub fn init(store: *const BlockStore.BlockStoreType(), cb: *std.ArrayList(Callback)) Self {
         return .{
             .block_store = store,
-            .tasks = tasks,
+            .callbacks = cb,
         };
     }
 
-    pub fn register_callback(self: Self, callback: *const fn (*const BlockStore.BlockStoreType()) void) void {
-        self.tasks.append(callback) catch unreachable;
+    pub fn register_callback(self: Self, callback: Callback) void {
+        self.callbacks.append(callback) catch unreachable;
         return;
     }
 };
 
 // caller should spawn in seperate thread
 // call blocks
-pub fn loop(self: TaskLoop) void {
+pub fn EventLoop(self: TaskLoop) void {
+    errdefer self.callbacks.clearAndFree();
     while (true) {
-        //wait
-        std.time.sleep(100000000);
-        //start
-        if (self.tasks.items.len == 0) continue;
-        defer self.tasks.clearAndFree();
-        for (self.tasks.items) |task| {
-            task(self.block_store);
+        std.time.sleep(TICKER);
+        if (self.callbacks.items.len == 0) continue;
+        defer self.callbacks.clearAndFree();
+        for (self.callbacks.items) |callback| {
+            callback.function(callback.args);
         }
     }
 }
@@ -54,14 +70,29 @@ test "callbacks" {
 
     try store.insert_text(0, "A");
 
-    var task_list = std.ArrayList(*const fn (*const BlockStore.BlockStoreType()) void).init(allocator);
-    const tl = TaskLoop.init(&store, &task_list);
-    tl.register_callback(clb);
+    var cb = std.ArrayList(Callback).init(allocator);
 
-    const thread = try Thread.spawn(.{}, loop, .{tl});
+    const tl = TaskLoop.init(&store, &cb);
+    tl.register_callback(
+        .{
+            .function = DefaultCallback,
+            .args = .{
+                .block = &store,
+            },
+        },
+    );
+
+    const thread = try Thread.spawn(.{}, EventLoop, .{tl});
     thread.join();
 }
 
-fn clb(store: *const BlockStore.BlockStoreType()) void {
-    std.debug.print("TEST: {s}\n", .{store.start.?.content});
+pub fn DefaultCallback(entity: Entity) void {
+    switch (entity) {
+        .block => |b| {
+            std.debug.print("block: {s}\n", .{b.start.?.content});
+        },
+        .sv => |vec| {
+            std.debug.print("sv: {any}\n", .{vec});
+        },
+    }
 }
