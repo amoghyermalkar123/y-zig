@@ -31,10 +31,8 @@ pub fn loop(self: TaskLoop) void {
         std.time.sleep(100000000);
         //start
         if (self.tasks.items.len == 0) continue;
-        std.debug.print("YES {d}\n", .{self.tasks.items.len});
-        defer self.tasks.deinit();
-        for (self.tasks.items, 0..) |task, i| {
-            std.debug.print("index: {d}\n", .{i});
+        defer self.tasks.clearAndFree();
+        for (self.tasks.items) |task| {
             task(self.block_store);
         }
     }
