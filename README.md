@@ -16,13 +16,12 @@ Phase 1: Only focus on Single character content
   [X] basic state vector impl for remote block integ
   [] more tests for remote update integ
   [] final phase 1 review
-  [] replay system (debug util)
+  [wip] replay system (debug util)
+  [] review memory
 
 Phase 2: add support for a proper string content
 - Items:
   - implement block splitting
-  - TBD
-  - debug mode (we should not compile the replay system when not in dev mode)
 
 Phase 3: Build on top of it:
 - state vector based delta awareness
@@ -31,8 +30,6 @@ Phase 3: Build on top of it:
 - support GC
 - support moved ranges (????)
 - update apply logic (pending, pending delete set)
-
-Phase 4:
-- memory memory memory :)
+- debug mode (we should not compile the replay system when not in dev mode)
 
 This project is heavy WIP
