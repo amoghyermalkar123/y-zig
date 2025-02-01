@@ -156,6 +156,15 @@ pub fn BlockStoreType() type {
             };
         }
 
+        pub fn deinit(self: *Self) void {
+            var next = self.start;
+            while (next != null) {
+                self.allocator.destroy(self.start.?);
+                next = next.?.right;
+            }
+            self.logger.deinit() catch unreachable;
+        }
+
         // TODO: optimize search
         // when items being added at end from remote update, this will never match for the right origin
         // because we are checking clock and client for right sentinel which will not match
@@ -426,6 +435,7 @@ test "localInsert" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     try array.insert_text(0, "A");
 
@@ -455,6 +465,7 @@ test "localInsert between" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     try array.insert_text(0, "A");
 
@@ -479,6 +490,7 @@ test "searchMarkers" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     try array.insert_text(0, "A");
 
@@ -510,6 +522,7 @@ test "integrate - basic non-conflicting case" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     // Create initial blocks: "A" -> "B"
     try array.insert_text(0, "A");
@@ -549,6 +562,7 @@ test "integrate - concurrent edits at same position" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     // Create initial blocks: "A" -> "B"
     try array.insert_text(0, "A");
@@ -599,6 +613,7 @@ test "integrate - same client different clocks" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     // Create initial blocks: "A" -> "B"
     try array.insert_text(0, "A");
@@ -639,6 +654,7 @@ test "integrate - duplicate ID" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     try array.insert_text(0, "A");
     try array.insert_text(1, "B");
@@ -680,6 +696,7 @@ test "integrate - null origins should fail" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
 
     try array.insert_text(0, "A");
     try array.insert_text(1, "B");
@@ -709,6 +726,7 @@ test "same origin multiple items - basic ordering" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer store.deinit();
 
     // Create initial block
     try store.insert_text(0, "A");
@@ -740,6 +758,7 @@ test "origin crossing prevention - basic" {
     var marker_list = std.ArrayList(Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer store.deinit();
 
     // Create initial structure: "ABC"
     try store.insert_text(0, "A");

@@ -18,16 +18,24 @@ pub const LogLevel = enum {
 };
 
 pub const EventType = enum {
-    // block events
+    // TODO: probably won't use these 2
     create,
     delete,
+    // block
+    marker,
+    neighbor_reconnection,
     // state vector events
     state_vector_update,
-    // integration events
+    // integration
+    ibo_update,
+    ci_update,
+    // integration
     integration_start,
     conflict_detected,
     conflict_resolved,
     integration_end,
+    // generic
+    generic,
 };
 
 pub const BlockLogEvent = struct {
@@ -39,6 +47,19 @@ pub const BlockLogEvent = struct {
     left: ?ID,
     right: ?ID,
     timestamp: i64,
+    msg: []const u8,
+};
+
+pub const IBOEvent = struct {
+    event_type: EventType = .ibo_update,
+    block_id: ID,
+    timestamp: i64,
+};
+
+pub const CIEvent = struct {
+    event_type: EventType = .ci_update,
+    block_id: ID,
+    timestamp: i64,
 };
 
 pub const StateVectorLogEvent = struct {
@@ -47,8 +68,14 @@ pub const StateVectorLogEvent = struct {
     timestamp: i64,
 };
 
+pub const GenericEvent = struct {
+    event_type: EventType = .generic,
+    msg: []const u8,
+    timestamp: i64,
+};
+
 pub const IntegrationLogEvent = struct {
-    phase: []const u8, // "start", "conflict_detected", "resolution_step", "complete"
+    phase: EventType, // "start", "conflict_detected", "resolution_step", "complete"
     block_id: ID,
     details: []const u8,
     timestamp: i64,
@@ -64,9 +91,6 @@ pub const StructuredLogger = struct {
     pub fn init(allocator: std.mem.Allocator, filepath: []const u8) !Self {
         const file = try std.fs.cwd().createFile(filepath, .{});
 
-        // Write opening JSON array
-        try file.writeAll("[\n");
-
         return Self{
             .file = file,
             .mutex = std.Thread.Mutex{},
@@ -76,7 +100,6 @@ pub const StructuredLogger = struct {
 
     pub fn deinit(self: *Self) !void {
         // Write closing JSON array
-        try self.file.writeAll("\n]");
         self.file.close();
     }
 
@@ -90,7 +113,7 @@ pub const StructuredLogger = struct {
         defer self.allocator.free(json);
 
         try self.file.writeAll(json);
-        try self.file.writeAll(",\n");
+        try self.file.writeAll("\n");
     }
 
     pub fn logStateVector(self: *Self, event: StateVectorLogEvent) !void {
@@ -103,7 +126,7 @@ pub const StructuredLogger = struct {
         defer self.allocator.free(json);
 
         try self.file.writeAll(json);
-        try self.file.writeAll(",\n");
+        try self.file.writeAll("\n");
     }
 
     pub fn logIntegration(self: *Self, event: IntegrationLogEvent) !void {
@@ -116,7 +139,49 @@ pub const StructuredLogger = struct {
         defer self.allocator.free(json);
 
         try self.file.writeAll(json);
-        try self.file.writeAll(",\n");
+        try self.file.writeAll("\n");
+    }
+
+    pub fn logIBOEvent(self: *Self, event: IBOEvent) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const json = try std.json.stringifyAlloc(self.allocator, .{
+            .data = event,
+        }, .{});
+        defer self.allocator.free(json);
+
+        try self.file.writeAll(json);
+        try self.file.writeAll("\n");
+    }
+
+    pub fn logCIEvent(self: *Self, event: CIEvent) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const json = try std.json.stringifyAlloc(self.allocator, .{
+            .data = event,
+        }, .{});
+        defer self.allocator.free(json);
+
+        try self.file.writeAll(json);
+        try self.file.writeAll("\n");
+    }
+
+    pub fn logGeneric(self: *Self, msg: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        const json = try std.json.stringifyAlloc(self.allocator, .{
+            .data = GenericEvent{
+                .msg = msg,
+                .timestamp = std.time.timestamp(),
+            },
+        }, .{});
+        defer self.allocator.free(json);
+
+        try self.file.writeAll(json);
+        try self.file.writeAll("\n");
     }
 };
 
@@ -136,6 +201,7 @@ test "basic logging" {
         .left = null,
         .right = null,
         .timestamp = std.time.timestamp(),
+        .msg = "",
     });
 
     // Log a state vector update
@@ -147,7 +213,7 @@ test "basic logging" {
 
     // Log an integration event
     try logger.logIntegration(.{
-        .phase = "start",
+        .phase = .conflict_detected,
         .block_id = ID.id(1, 1),
         .details = "Starting integration of block A",
         .timestamp = std.time.timestamp(),
