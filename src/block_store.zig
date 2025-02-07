@@ -86,7 +86,7 @@ pub fn SearchMarkerType() type {
             return self.markers.items[0];
         }
 
-        // TODO: this should eventuall update all existing markers with every update that
+        // TODO: this should eventually update all existing markers with every update that
         // happens in the document, right now it de-allocates all markers and keeps only one
         // for simplicity
         pub fn overwrite(self: *Self, pos: usize, block: *Block) anyerror!void {
@@ -174,7 +174,6 @@ pub fn BlockStoreType() type {
         // TODO: optimize search
         // when items being added at end from remote update, this will never match for the right origin
         // because we are checking clock and client for right sentinel which will not match
-        // TODO: figure this out now
         pub fn get_block_by_id(self: Self, id: ID) ?*Block {
             var next = self.start;
             while (next != null) {
@@ -552,7 +551,7 @@ const mem = std.mem;
 
 test "localInsert" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
@@ -582,7 +581,7 @@ test "localInsert" {
 
 test "localInsert between" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
@@ -607,7 +606,7 @@ test "localInsert between" {
 
 test "searchMarkers" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
@@ -639,7 +638,7 @@ test "searchMarkers" {
 
 test "integrate - basic non-conflicting case" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -679,7 +678,7 @@ test "integrate - basic non-conflicting case" {
 
 test "integrate - concurrent edits at same position" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -730,7 +729,7 @@ test "integrate - concurrent edits at same position" {
 
 test "integrate - same client different clocks" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -772,7 +771,7 @@ test "integrate - same client different clocks" {
 
 test "integrate - duplicate ID" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -814,7 +813,7 @@ test "integrate - duplicate ID" {
 
 test "integrate - null origins should fail" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -844,7 +843,7 @@ test "integrate - null origins should fail" {
 
 test "same origin multiple items - basic ordering" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -876,7 +875,7 @@ test "same origin multiple items - basic ordering" {
 
 test "origin crossing prevention - basic" {
     var clk = Clock.init();
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
