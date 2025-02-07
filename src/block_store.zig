@@ -1,13 +1,13 @@
 const std = @import("std");
+
 const Clock = @import("global_clock.zig").MonotonicClock;
 
-const Allocator = std.mem.Allocator;
-const Log = @import("logger.zig");
-
-// TODO: auto generate and persist this
-const LOCAL_CLIENT = 1;
-pub const SPECIAL_CLOCK_LEFT = 0;
-pub const SPECIAL_CLOCK_RIGHT = 1;
+const Log = @import("./replay/replay.zig");
+const InternalReplayEvent = Log.InternalEventType(ID);
+const BlockLogEventType = Log.BlockLogEventType(ID);
+const IBOLogEventType = Log.IBOLogEventType(ID);
+const CILogEventType = Log.CILogEventType(ID);
+const IntegLogEventType = Log.IntegrationLogEventType(ID);
 
 pub const ID = struct {
     clock: u64,
@@ -20,6 +20,13 @@ pub const ID = struct {
         };
     }
 };
+
+const Allocator = std.mem.Allocator;
+
+// TODO: auto generate and persist this
+const LOCAL_CLIENT = 1;
+pub const SPECIAL_CLOCK_LEFT = 0;
+pub const SPECIAL_CLOCK_RIGHT = 1;
 
 pub const Block = struct {
     id: ID,
@@ -304,16 +311,18 @@ pub fn BlockStoreType() type {
         // TODO: assert origins exist for the block before executing anything in this function
         pub fn integrate(self: *Self, block: *Block) anyerror!void {
             std.debug.assert(block.left_origin != null and block.right_origin != null);
-            try self.logger.logBlockEvent(.{
-                .event_type = .integration_start,
-                .block_id = block.id,
-                .content = block.content,
-                .left_origin = block.left_origin,
-                .right_origin = block.right_origin,
-                .left = if (block.left) |l| l.id else null,
-                .right = if (block.right) |r| r.id else null,
-                .timestamp = std.time.timestamp(),
-                .msg = "",
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .integration_start,
+                    .block_id = block.id,
+                    .content = block.content,
+                    .left_origin = block.left_origin,
+                    .right_origin = block.right_origin,
+                    .left = if (block.left) |l| l.id else null,
+                    .right = if (block.right) |r| r.id else null,
+                    .timestamp = std.time.timestamp(),
+                    .msg = "",
+                },
             });
             var isConflict = false;
             // this case check can be a false positive, if your blocks do no go through neighbor checking
@@ -333,16 +342,18 @@ pub fn BlockStoreType() type {
                 }
             } else unreachable;
 
-            try self.logger.logBlockEvent(.{
-                .event_type = .marker,
-                .block_id = block.id,
-                .content = block.content,
-                .left_origin = block.left_origin,
-                .right_origin = block.right_origin,
-                .left = if (block.left) |l| l.id else null,
-                .right = if (block.right) |r| r.id else null,
-                .timestamp = std.time.timestamp(),
-                .msg = "",
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .marker,
+                    .block_id = block.id,
+                    .content = block.content,
+                    .left_origin = block.left_origin,
+                    .right_origin = block.right_origin,
+                    .left = if (block.left) |l| l.id else null,
+                    .right = if (block.right) |r| r.id else null,
+                    .timestamp = std.time.timestamp(),
+                    .msg = "",
+                },
             });
 
             if (isConflict) {
@@ -360,11 +371,13 @@ pub fn BlockStoreType() type {
                     o = self.start orelse unreachable;
                 }
 
-                try self.logger.logIntegration(.{
-                    .phase = .conflict_detected,
-                    .block_id = o.?.id,
-                    .details = "first conflicting item set",
-                    .timestamp = std.time.timestamp(),
+                try self.logger.log(InternalReplayEvent{
+                    .integlog = .{
+                        .phase = .conflict_detected,
+                        .block_id = o.?.id,
+                        .details = "first conflicting item set",
+                        .timestamp = std.time.timestamp(),
+                    },
                 });
 
                 // now the first conflicting item has been set
@@ -391,14 +404,18 @@ pub fn BlockStoreType() type {
                     try items_before_origin.put(o.?.id, {});
                     try conflicting_items.put(o.?.id, {});
 
-                    try self.logger.logIBOEvent(.{
-                        .block_id = o.?.id,
-                        .timestamp = std.time.timestamp(),
+                    try self.logger.log(InternalReplayEvent{
+                        .ibolog = .{
+                            .block_id = o.?.id,
+                            .timestamp = std.time.timestamp(),
+                        },
                     });
 
-                    try self.logger.logCIEvent(.{
-                        .block_id = o.?.id,
-                        .timestamp = std.time.timestamp(),
+                    try self.logger.log(InternalReplayEvent{
+                        .cilog = .{
+                            .block_id = o.?.id,
+                            .timestamp = std.time.timestamp(),
+                        },
                     });
 
                     // check for same left derivation points
@@ -407,10 +424,25 @@ pub fn BlockStoreType() type {
                         if (o.?.id.client < block.id.client) {
                             left = o.?;
                             conflicting_items.clearAndFree();
-                            try self.logger.logGeneric("CASE 1 MATCHED: cleared CI");
+                            try self.logger.log(InternalReplayEvent{
+                                .genericlog = .{
+                                    .event_type = .generic,
+                                    .msg = "CASE 1 MATCHED: cleared CI",
+                                    .timestamp = std.time.timestamp(),
+                                },
+                            });
                         } else if (o != null and BlockStoreType().compareIDs(o.?.right_origin, block.right_origin)) {
                             // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
-                            try self.logger.logGeneric("CASE 2 MATCHED: Same Integration Points");
+                            try self.logger.log(
+                                InternalReplayEvent{
+                                    .genericlog = .{
+                                        .event_type = .generic,
+                                        .msg = "CASE 2 MATCHED: Same Integration Points",
+                                        .timestamp = std.time.timestamp(),
+                                    },
+                                },
+                            );
+
                             break;
                         }
                         // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
@@ -422,11 +454,28 @@ pub fn BlockStoreType() type {
                         if (blk != null and items_before_origin.contains(blk.?.id) and !conflicting_items.contains(blk.?.id)) {
                             left = o.?;
                             conflicting_items.clearAndFree();
-                            try self.logger.logGeneric("CASE 3 MATCHED: cleared CI");
+
+                            try self.logger.log(
+                                InternalReplayEvent{
+                                    .genericlog = .{
+                                        .event_type = .generic,
+                                        .msg = "CASE 3 MATCHED: cleared CI",
+                                        .timestamp = std.time.timestamp(),
+                                    },
+                                },
+                            );
                         } else {}
                     } else {
                         // we might have found our left
-                        try self.logger.logGeneric("NO CASE MATCHED");
+                        try self.logger.log(
+                            InternalReplayEvent{
+                                .genericlog = .{
+                                    .event_type = .generic,
+                                    .msg = "CASE 3 MATCHED: cleared CI",
+                                    .timestamp = std.time.timestamp(),
+                                },
+                            },
+                        );
                         break;
                     }
 
@@ -436,16 +485,18 @@ pub fn BlockStoreType() type {
                 block.left = left;
             }
 
-            try self.logger.logBlockEvent(.{
-                .event_type = .neighbor_reconnection,
-                .block_id = block.id,
-                .content = block.content,
-                .left_origin = block.left_origin,
-                .right_origin = block.right_origin,
-                .left = if (block.left) |l| l.id else null,
-                .right = if (block.right) |r| r.id else null,
-                .timestamp = std.time.timestamp(),
-                .msg = "Post Conflict Resolved Block",
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .neighbor_reconnection,
+                    .block_id = block.id,
+                    .content = block.content,
+                    .left_origin = block.left_origin,
+                    .right_origin = block.right_origin,
+                    .left = if (block.left) |l| l.id else null,
+                    .right = if (block.right) |r| r.id else null,
+                    .timestamp = std.time.timestamp(),
+                    .msg = "Post Conflict Resolved Block",
+                },
             });
 
             // reconnect left neighbor
@@ -464,16 +515,18 @@ pub fn BlockStoreType() type {
                 block.right.?.left = block;
             }
 
-            try self.logger.logBlockEvent(.{
-                .event_type = .integration_end,
-                .block_id = block.id,
-                .content = block.content,
-                .left_origin = block.left_origin,
-                .right_origin = block.right_origin,
-                .left = if (block.left) |l| l.id else null,
-                .right = if (block.right) |r| r.id else null,
-                .timestamp = std.time.timestamp(),
-                .msg = "Post Integration End Block",
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .integration_end,
+                    .block_id = block.id,
+                    .content = block.content,
+                    .left_origin = block.left_origin,
+                    .right_origin = block.right_origin,
+                    .left = if (block.left) |l| l.id else null,
+                    .right = if (block.right) |r| r.id else null,
+                    .timestamp = std.time.timestamp(),
+                    .msg = "Post Integration End Block",
+                },
             });
         }
     };
