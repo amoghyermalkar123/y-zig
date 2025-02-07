@@ -1,12 +1,17 @@
 const std = @import("std");
-const search_marker = @import("block_store.zig");
-const Block = search_marker.Block;
-const BlockStore = @import("block_store.zig").BlockStoreType();
+
+const Block = @import("block_store.zig").Block;
+const BlockStoreType = @import("block_store.zig").BlockStoreType;
+const ID = @import("block_store.zig").ID;
+
+const SearchMarkerType = @import("search_marker.zig").SearchMarkerType;
+const Marker = @import("./search_marker.zig").Marker;
+const MarkerError = @import("./search_marker.zig").MarkerError;
+
 const SENTINEL_LEFT = @import("block_store.zig").SPECIAL_CLOCK_LEFT;
 const SENTINEL_RIGHT = @import("block_store.zig").SPECIAL_CLOCK_RIGHT;
 
 const Clock = @import("global_clock.zig").MonotonicClock;
-const ID = search_marker.ID;
 
 pub const Blocks = *std.ArrayList(Block);
 
@@ -36,7 +41,7 @@ pub const UpdateResult = struct {
 
 // TODO: final check for this function, see if are yet to add anything from yjs impl and add
 // the base version atleast is ready, tests passing
-pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStore, update: Updates) !UpdateResult {
+pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStoreType(), update: Updates) !UpdateResult {
     var result = UpdateResult{
         .pending = PendingStruct.init(allocator),
     };
@@ -83,9 +88,9 @@ test "apply_update: concurrent client updates:in the middle: happy-flow" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
-    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
-    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
     // Insert first block 'A'
     // TODO: figure out do we update state vector in this flow
@@ -150,9 +155,9 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
-    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
-    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
     // Create initial document: "AB"
     try store.insert_text(0, "A");
@@ -213,9 +218,9 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
-    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
-    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
     // Create initial document: "AB"
     try store.insert_text(0, "A");
@@ -279,9 +284,9 @@ test "apply_update: concurrent client updates:missing blocks" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(search_marker.Marker).init(allocator);
-    var marker_system = search_marker.SearchMarkerType().init(&marker_list);
-    var store = search_marker.BlockStoreType().init(allocator, &marker_system, &clk);
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
     // Create initial document: "A"
     try store.insert_text(0, "A");
