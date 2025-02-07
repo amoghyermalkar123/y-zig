@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const Clock = @import("global_clock.zig").MonotonicClock;
-
 const Log = @import("./replay/replay.zig");
 const InternalReplayEvent = Log.InternalEventType(ID);
 const BlockLogEventType = Log.BlockLogEventType(ID);
@@ -260,11 +259,41 @@ pub fn BlockStoreType() type {
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
 
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .create,
+                    .block_id = new_block.*.id,
+                    .content = text,
+                    .left_origin = null,
+                    .right_origin = null,
+
+                    .left = null,
+                    .right = null,
+
+                    .timestamp = std.time.timestamp(),
+                    .msg = "Local Insert Start",
+                },
+            });
+
             // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => try self.marker_system.new(index, new_block),
                 else => unreachable,
             };
+
+            try self.logger.log(InternalReplayEvent{
+                .blocklog = .{
+                    .event_type = .marker,
+                    .block_id = m.item.id,
+                    .content = m.item.content,
+                    .left_origin = m.item.left_origin,
+                    .right_origin = m.item.right_origin,
+                    .left = if (m.item.left) |l| l.id else null,
+                    .right = if (m.item.right) |r| r.id else null,
+                    .timestamp = std.time.timestamp(),
+                    .msg = "",
+                },
+            });
 
             // attach left and right neighbors
             if (index < self.length) {
@@ -341,20 +370,6 @@ pub fn BlockStoreType() type {
                     isConflict = true;
                 }
             } else unreachable;
-
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .marker,
-                    .block_id = block.id,
-                    .content = block.content,
-                    .left_origin = block.left_origin,
-                    .right_origin = block.right_origin,
-                    .left = if (block.left) |l| l.id else null,
-                    .right = if (block.right) |r| r.id else null,
-                    .timestamp = std.time.timestamp(),
-                    .msg = "",
-                },
-            });
 
             if (isConflict) {
                 // set the left pointer, this is used across the conflict resolution loop to figure out the new neighbors
@@ -685,10 +700,10 @@ test "integrate - concurrent edits at same position" {
     // Create two concurrent blocks "C" and "D" from different clients
     // Both trying to insert between A and B
     const block_c = try allocator.create(Block);
-    block_c.* = Block.block(ID.id(3, 1), "C"); // Client 1
+    block_c.* = Block.block(ID.id(2, 1), "C"); // Client 1
 
     const block_d = try allocator.create(Block);
-    block_d.* = Block.block(ID.id(3, 2), "D"); // Client 2
+    block_d.* = Block.block(ID.id(2, 2), "D"); // Client 2
 
     // Set up relationships for both blocks
     block_c.left = block_a;
