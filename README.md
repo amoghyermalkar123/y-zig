@@ -14,10 +14,10 @@ Phase 1: Only focus on Single character content
 - Items:
   [X] implement integration logic (local insert)
   [X] basic state vector impl for remote block integ
-  [] more tests for remote update integ
-  [] final phase 1 review
-  [wip] replay system (debug util)
-  [] review memory
+  [X] more tests for remote update integ
+  [X] final phase 1 review
+  [X] replay system (debug util) (completed phase 1 level of the util, this should be matured as need and understanding grows)
+  [X] review memory
 
 Phase 2: add support for a proper string content
 - Items:
