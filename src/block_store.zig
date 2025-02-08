@@ -11,6 +11,8 @@ const IBOLogEventType = Log.IBOLogEventType(ID);
 const CILogEventType = Log.CILogEventType(ID);
 const IntegLogEventType = Log.IntegrationLogEventType(ID);
 
+const assert = std.debug.assert;
+
 pub const ID = struct {
     clock: u64,
     client: u64,
@@ -55,7 +57,6 @@ pub fn BlockStoreType() type {
 
     return struct {
         start: ?*Block = null,
-        curr: ?*Block = null,
         length: usize = 0,
         allocator: Allocator,
         marker_system: *markers,
@@ -167,30 +168,39 @@ pub fn BlockStoreType() type {
             return null;
         }
 
-        // TODO: support multi-character inputs
-        // TODO: the first and the last element should not have empty left/ right origins
-        // add a special char or id to handle this
-        // otherwise it's preventing to identify case 3 of conflict resolution
+        // attaches new_block and m (marker) as each other's neighbor
+        fn attach_neighbor(new_block: *Block, m: *Block) void {
+            new_block.left = m.left;
+            new_block.left_origin = m.left.?.id;
+
+            new_block.right = m;
+            new_block.right_origin = m.id;
+
+            new_block.left.?.right = new_block;
+            m.left = new_block;
+        }
+
+        // attaches new_block to the end of the block store
+        // which is the `m` marker we get from the marker_system
+        fn attach_last(new_block: *Block, m: *Block) void {
+            m.right = new_block;
+            new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
+            new_block.left = m;
+            new_block.left_origin = m.id;
+        }
+
+        // attaches new_block to the beginning of the block store
+        fn attach_first(self: *Self, new_block: *Block) void {
+            new_block.left_origin = ID.id(SPECIAL_CLOCK_LEFT, 1);
+            new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
+            self.start = new_block;
+        }
+
+        // inserts a text content in the block store
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             // allocate memory for new block
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
-
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .create,
-                    .block_id = new_block.*.id,
-                    .content = text,
-                    .left_origin = null,
-                    .right_origin = null,
-
-                    .left = null,
-                    .right = null,
-
-                    .timestamp = std.time.timestamp(),
-                    .msg = "Local Insert Start",
-                },
-            });
 
             // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
@@ -198,41 +208,12 @@ pub fn BlockStoreType() type {
                 else => unreachable,
             };
 
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .marker,
-                    .block_id = m.item.id,
-                    .content = m.item.content,
-                    .left_origin = m.item.left_origin,
-                    .right_origin = m.item.right_origin,
-                    .left = if (m.item.left) |l| l.id else null,
-                    .right = if (m.item.right) |r| r.id else null,
-                    .timestamp = std.time.timestamp(),
-                    .msg = "",
-                },
-            });
-
-            // attach left and right neighbors
             if (index < self.length) {
-                // add items in the middle of the list
-                // the marker system will find us exactly where this block needs to be added
-                new_block.left = m.item.left;
-                new_block.left_origin = m.item.left.?.id;
-                new_block.right = m.item;
-                new_block.right_origin = m.item.id;
-                new_block.left.?.right = new_block;
-                m.item.left = new_block;
+                attach_neighbor(new_block, m.item);
             } else if (self.start == null) {
-                // add first item
-                new_block.left_origin = ID.id(SPECIAL_CLOCK_LEFT, 1);
-                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
-                self.start = new_block;
+                self.attach_first(new_block);
             } else {
-                // add items that are appended
-                m.item.right = new_block;
-                new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
-                new_block.left = m.item;
-                new_block.left_origin = m.item.id;
+                attach_last(new_block, m.item);
             }
 
             self.length += text.len;
@@ -254,22 +235,9 @@ pub fn BlockStoreType() type {
         }
 
         // caller should take care of adding the block to the respective dot cloud
-        // TODO: assert origins exist for the block before executing anything in this function
         pub fn integrate(self: *Self, block: *Block) anyerror!void {
             std.debug.assert(block.left_origin != null and block.right_origin != null);
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .integration_start,
-                    .block_id = block.id,
-                    .content = block.content,
-                    .left_origin = block.left_origin,
-                    .right_origin = block.right_origin,
-                    .left = if (block.left) |l| l.id else null,
-                    .right = if (block.right) |r| r.id else null,
-                    .timestamp = std.time.timestamp(),
-                    .msg = "",
-                },
-            });
+
             var isConflict = false;
             // this case check can be a false positive, if your blocks do no go through neighbor checking
             // before integrating this can act as a conflict (since remote blocks always come with empty left/right neighbors)
@@ -336,45 +304,14 @@ pub fn BlockStoreType() type {
                     try items_before_origin.put(o.?.id, {});
                     try conflicting_items.put(o.?.id, {});
 
-                    try self.logger.log(InternalReplayEvent{
-                        .ibolog = .{
-                            .block_id = o.?.id,
-                            .timestamp = std.time.timestamp(),
-                        },
-                    });
-
-                    try self.logger.log(InternalReplayEvent{
-                        .cilog = .{
-                            .block_id = o.?.id,
-                            .timestamp = std.time.timestamp(),
-                        },
-                    });
-
                     // check for same left derivation points
                     if (o != null and BlockStoreType().compareIDs(o.?.left_origin, block.left_origin)) {
                         // if left origin is same, order by client ids - we go with the ascending order of client ids from left ro right
                         if (o.?.id.client < block.id.client) {
                             left = o.?;
                             conflicting_items.clearAndFree();
-                            try self.logger.log(InternalReplayEvent{
-                                .genericlog = .{
-                                    .event_type = .generic,
-                                    .msg = "CASE 1 MATCHED: cleared CI",
-                                    .timestamp = std.time.timestamp(),
-                                },
-                            });
                         } else if (o != null and BlockStoreType().compareIDs(o.?.right_origin, block.right_origin)) {
                             // this loop breaks because we know that `block` and `o` had the same left,right derivation points.
-                            try self.logger.log(
-                                InternalReplayEvent{
-                                    .genericlog = .{
-                                        .event_type = .generic,
-                                        .msg = "CASE 2 MATCHED: Same Integration Points",
-                                        .timestamp = std.time.timestamp(),
-                                    },
-                                },
-                            );
-
                             break;
                         }
                         // check if the left origin of the conflicting item is in the ibo set but not in the conflicting items set
@@ -386,28 +323,9 @@ pub fn BlockStoreType() type {
                         if (blk != null and items_before_origin.contains(blk.?.id) and !conflicting_items.contains(blk.?.id)) {
                             left = o.?;
                             conflicting_items.clearAndFree();
-
-                            try self.logger.log(
-                                InternalReplayEvent{
-                                    .genericlog = .{
-                                        .event_type = .generic,
-                                        .msg = "CASE 3 MATCHED: cleared CI",
-                                        .timestamp = std.time.timestamp(),
-                                    },
-                                },
-                            );
                         } else {}
                     } else {
                         // we might have found our left
-                        try self.logger.log(
-                            InternalReplayEvent{
-                                .genericlog = .{
-                                    .event_type = .generic,
-                                    .msg = "CASE 3 MATCHED: cleared CI",
-                                    .timestamp = std.time.timestamp(),
-                                },
-                            },
-                        );
                         break;
                     }
 
@@ -416,20 +334,6 @@ pub fn BlockStoreType() type {
                 // set the new neighbor
                 block.left = left;
             }
-
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .neighbor_reconnection,
-                    .block_id = block.id,
-                    .content = block.content,
-                    .left_origin = block.left_origin,
-                    .right_origin = block.right_origin,
-                    .left = if (block.left) |l| l.id else null,
-                    .right = if (block.right) |r| r.id else null,
-                    .timestamp = std.time.timestamp(),
-                    .msg = "Post Conflict Resolved Block",
-                },
-            });
 
             // reconnect left neighbor
             if (block.left != null) {
@@ -446,20 +350,6 @@ pub fn BlockStoreType() type {
             if (block.right != null) {
                 block.right.?.left = block;
             }
-
-            try self.logger.log(InternalReplayEvent{
-                .blocklog = .{
-                    .event_type = .integration_end,
-                    .block_id = block.id,
-                    .content = block.content,
-                    .left_origin = block.left_origin,
-                    .right_origin = block.right_origin,
-                    .left = if (block.left) |l| l.id else null,
-                    .right = if (block.right) |r| r.id else null,
-                    .timestamp = std.time.timestamp(),
-                    .msg = "Post Integration End Block",
-                },
-            });
         }
     };
 }
