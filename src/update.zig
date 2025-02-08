@@ -93,7 +93,6 @@ test "apply_update: concurrent client updates:in the middle: happy-flow" {
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
     // Insert first block 'A'
-    // TODO: figure out do we update state vector in this flow
     try store.insert_text(0, "A");
     try store.insert_text(1, "B");
 

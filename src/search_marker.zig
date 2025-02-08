@@ -15,6 +15,8 @@ pub const MarkerError = error{
     NoMarkers,
 };
 
+// SearchMarkers are indexes for the underlying block store.
+// they help save time traversing a block store
 pub fn SearchMarkerType() type {
     return struct {
         markers: *std.ArrayList(Marker),
