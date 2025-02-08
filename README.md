@@ -22,14 +22,16 @@ Phase 1: Only focus on Single character content
 Phase 2: add support for a proper string content
 - Items:
   - implement block splitting
+  - marker updating everytime a new thing happens
 
 Phase 3: Build on top of it:
 - state vector based delta awareness
   - remote peer update decoding
   - performing integration on remote blocks
+
+Phase 4: Deletions
+- update apply logic (pending delete set)
 - support GC
 - support moved ranges (????)
-- update apply logic (pending, pending delete set)
-- debug mode (we should not compile the replay system when not in dev mode)
 
 This project is heavy WIP
