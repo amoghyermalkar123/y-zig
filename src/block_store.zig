@@ -2,16 +2,9 @@ const std = @import("std");
 const SearchMarkerType = @import("./search_marker.zig").SearchMarkerType;
 const Marker = @import("./search_marker.zig").Marker;
 const MarkerError = @import("./search_marker.zig").MarkerError;
-
 const Clock = @import("global_clock.zig").MonotonicClock;
-const Log = @import("./replay/replay.zig");
-const InternalReplayEvent = Log.InternalEventType(ID);
-const BlockLogEventType = Log.BlockLogEventType(ID);
-const IBOLogEventType = Log.IBOLogEventType(ID);
-const CILogEventType = Log.CILogEventType(ID);
-const IntegLogEventType = Log.IntegrationLogEventType(ID);
-
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 pub const ID = struct {
     clock: u64,
@@ -25,13 +18,14 @@ pub const ID = struct {
     }
 };
 
-const Allocator = std.mem.Allocator;
-
 // TODO: auto generate and persist this
 const LOCAL_CLIENT = 1;
+
+// Special Blocks indicating first and last elements
 pub const SPECIAL_CLOCK_LEFT = 0;
 pub const SPECIAL_CLOCK_RIGHT = 1;
 
+// Block is a unit of an event totally ordered over a set such events
 pub const Block = struct {
     id: ID,
     left_origin: ?ID,
@@ -52,6 +46,7 @@ pub const Block = struct {
     }
 };
 
+// BlockStore is a primary way of doing ops on the sequenced list of blocks
 pub fn BlockStoreType() type {
     const markers = SearchMarkerType();
 
@@ -62,7 +57,6 @@ pub fn BlockStoreType() type {
         marker_system: *markers,
         monotonic_clock: *Clock,
         state_vector: std.AutoHashMap(u64, u64),
-        logger: Log.StructuredLogger,
 
         const Self = @This();
 
@@ -70,14 +64,11 @@ pub fn BlockStoreType() type {
             var state_vector = std.AutoHashMap(u64, u64).init(allocator);
             state_vector.put(LOCAL_CLIENT, 1) catch unreachable;
 
-            const logger = Log.StructuredLogger.init(allocator, "test.log") catch unreachable;
-
             return Self{
                 .allocator = allocator,
                 .marker_system = marker_system,
                 .monotonic_clock = clock,
                 .state_vector = state_vector,
-                .logger = logger,
             };
         }
 
@@ -87,7 +78,6 @@ pub fn BlockStoreType() type {
                 self.allocator.destroy(self.start.?);
                 next = next.?.right;
             }
-            self.logger.deinit() catch unreachable;
         }
 
         // TODO: optimize search
@@ -270,15 +260,6 @@ pub fn BlockStoreType() type {
                     // at the start of the document
                     o = self.start orelse unreachable;
                 }
-
-                try self.logger.log(InternalReplayEvent{
-                    .integlog = .{
-                        .phase = .conflict_detected,
-                        .block_id = o.?.id,
-                        .details = "first conflicting item set",
-                        .timestamp = std.time.timestamp(),
-                    },
-                });
 
                 // now the first conflicting item has been set
                 // let's move on to the conflict resolution loop
