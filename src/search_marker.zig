@@ -42,17 +42,29 @@ pub fn SearchMarkerType() type {
             return self.markers.items[0];
         }
 
+        // TODO: make this thing better
+        pub fn update_marker(self: *Self, pos: usize, updated_item: *Block) !void {
+            self.markers.clearAndFree();
+            try self.markers.append(.{
+                .pos = pos,
+                .item = updated_item,
+                .timestamp = std.time.milliTimestamp(),
+            });
+            self.curr_idx = 1;
+            return;
+        }
+
         // TODO: this should eventually update all existing markers with every update that
         // happens in the document, right now it de-allocates all markers and keeps only one
         // for simplicity
         pub fn overwrite(self: *Self, pos: usize, block: *Block) anyerror!void {
             self.markers.deinit();
             self.curr_idx = 0;
-            try self.new(pos, block);
+            _ = try self.new(pos, block);
         }
 
         // find_marker returns the best possible marker for a given position in the document
-        pub fn find_block(self: *Self, pos: usize) anyerror!Marker {
+        pub fn find_block(self: *Self, pos: usize) !Marker {
             if (self.markers.items.len == 0) return MarkerError.NoMarkers;
 
             var marker: Marker = self.markers.items[0];

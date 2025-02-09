@@ -158,8 +158,41 @@ pub fn BlockStoreType() type {
             return null;
         }
 
+        // this function should only be called in certain scenarios when a block actually requires
+        // splitting, the caller needs to have all checks in place before calling this function
+        // we dont want to split weirdly
+        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
+            const split_point = m.item.content.len - index - 1;
+            // use split point to create two blocks
+            var blk_left = try self.allocator.create(Block);
+            blk_left.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), "");
+            blk_left.content = try self.allocator.dupe(u8, m.item.content[0..split_point]);
+
+            const blk_right = try self.allocator.create(Block);
+            blk_right.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), "");
+            blk_right.content = try self.allocator.dupe(u8, m.item.content[split_point..]);
+
+            // insert left split block at index
+            // insert new_block at the right of left split
+            // insert right split block at the right of new_block
+            m.item.left.?.right = blk_left;
+            blk_left.left = m.item.left;
+            blk_left.right = new_block;
+
+            new_block.left = blk_left;
+            new_block.right = blk_right;
+
+            blk_right.left = new_block;
+            blk_right.right = m.item.right;
+            m.item.right.?.left = blk_right;
+
+            // delete existing item at index
+            try self.delete_block(m);
+        }
+
         // attaches new_block and m (marker) as each other's neighbor
         fn attach_neighbor(new_block: *Block, m: *Block) void {
+            // attach neighbors
             new_block.left = m.left;
             new_block.left_origin = m.left.?.id;
 
@@ -186,6 +219,15 @@ pub fn BlockStoreType() type {
             self.start = new_block;
         }
 
+        // TODO: special case first and last elements
+        fn delete_block(self: *Self, marker: Marker) !void {
+            marker.item.left.?.right = marker.item.right;
+            marker.item.right.?.left = marker.item.left;
+
+            try self.marker_system.update_marker(marker.pos, marker.item.left.?);
+            self.allocator.destroy(marker.item);
+        }
+
         // inserts a text content in the block store
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             // allocate memory for new block
@@ -199,7 +241,10 @@ pub fn BlockStoreType() type {
             };
 
             if (index < self.length) {
-                attach_neighbor(new_block, m.item);
+                if (index > m.pos and index < m.item.content.len)
+                    try self.split_and_add_block(m, new_block, index)
+                else
+                    attach_neighbor(new_block, m.item);
             } else if (self.start == null) {
                 self.attach_first(new_block);
             } else {
@@ -711,4 +756,28 @@ fn containsSubsequence(haystack: []const u8, needle: []const u8) bool {
         }
     }
     return false;
+}
+
+test "blockSplit - basic" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer store.deinit();
+
+    try store.insert_text(0, "ABC");
+    try store.insert_text(1, "DEF");
+
+    var current = store.start;
+    var content = std.ArrayList(u8).init(allocator);
+    while (current != null) : (current = current.?.right) {
+        try content.appendSlice(current.?.content);
+    }
+
+    const result = content.items;
+    try t.expectEqualStrings("ADEFBC", result);
 }
