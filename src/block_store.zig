@@ -165,26 +165,30 @@ pub fn BlockStoreType() type {
             const split_point = m.item.content.len - index - 1;
             // use split point to create two blocks
             var blk_left = try self.allocator.create(Block);
-            blk_left.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), "");
-            blk_left.content = try self.allocator.dupe(u8, m.item.content[0..split_point]);
+            blk_left.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), try self.allocator.dupe(u8, m.item.content[0..split_point]));
 
             const blk_right = try self.allocator.create(Block);
-            blk_right.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), "");
-            blk_right.content = try self.allocator.dupe(u8, m.item.content[split_point..]);
+            blk_right.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), try self.allocator.dupe(u8, m.item.content[split_point..]));
 
             // insert left split block at index
             // insert new_block at the right of left split
             // insert right split block at the right of new_block
-            m.item.left.?.right = blk_left;
-            blk_left.left = m.item.left;
-            blk_left.right = new_block;
+            if (m.item.left != null) {
+                m.item.left.?.right = blk_left;
+                blk_left.left = m.item.left;
+            } else {
+                self.start = blk_left;
+            }
 
+            blk_left.right = new_block;
             new_block.left = blk_left;
             new_block.right = blk_right;
-
             blk_right.left = new_block;
-            blk_right.right = m.item.right;
-            m.item.right.?.left = blk_right;
+
+            if (m.item.right != null) {
+                blk_right.right = m.item.right;
+                m.item.right.?.left = blk_right;
+            }
 
             // delete existing item at index
             try self.delete_block(m);
@@ -221,10 +225,10 @@ pub fn BlockStoreType() type {
 
         // TODO: special case first and last elements
         fn delete_block(self: *Self, marker: Marker) !void {
-            marker.item.left.?.right = marker.item.right;
-            marker.item.right.?.left = marker.item.left;
+            if (marker.item.left != null) marker.item.left.?.right = marker.item.right;
+            if (marker.item.right != null) marker.item.right.?.left = marker.item.left;
 
-            try self.marker_system.update_marker(marker.pos, marker.item.left.?);
+            if (marker.item.left != null) try self.marker_system.update_marker(marker.pos, marker.item.left.?);
             self.allocator.destroy(marker.item);
         }
 
