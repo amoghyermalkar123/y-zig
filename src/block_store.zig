@@ -190,12 +190,16 @@ pub fn BlockStoreType() type {
                 m.item.right.?.left = blk_right;
             }
 
+            // destroy all markers until i figure out how to deal with marker updation
+            // in the scenario where the pointed block is split
+            self.marker_system.destroy_markers();
             // delete existing item at index
             try self.delete_block(m);
         }
 
         // attaches new_block and m (marker) as each other's neighbor
         fn attach_neighbor(new_block: *Block, m: *Block) void {
+            assert(m.left != null);
             // attach neighbors
             new_block.left = m.left;
             new_block.left_origin = m.left.?.id;
@@ -228,7 +232,6 @@ pub fn BlockStoreType() type {
             if (marker.item.left != null) marker.item.left.?.right = marker.item.right;
             if (marker.item.right != null) marker.item.right.?.left = marker.item.left;
 
-            if (marker.item.left != null) try self.marker_system.update_marker(marker.pos, marker.item.left.?);
             self.allocator.destroy(marker.item);
         }
 
@@ -784,4 +787,31 @@ test "blockSplit - basic" {
 
     const result = content.items;
     try t.expectEqualStrings("ADEFBC", result);
+}
+
+// TODO: figure how to solve this flow.
+// figure out how to update markers in block splitting cases.
+test "blockSplit - twice the split" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer store.deinit();
+
+    try store.insert_text(0, "ABC");
+    try store.insert_text(1, "DEF");
+    try store.insert_text(1, "XY");
+
+    var current = store.start;
+    var content = std.ArrayList(u8).init(allocator);
+    while (current != null) : (current = current.?.right) {
+        try content.appendSlice(current.?.content);
+    }
+
+    const result = content.items;
+    try t.expectEqualStrings("AXYDEFBC", result);
 }

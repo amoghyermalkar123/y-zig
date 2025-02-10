@@ -42,25 +42,32 @@ pub fn SearchMarkerType() type {
             return self.markers.items[0];
         }
 
-        // TODO: make this thing better
-        pub fn update_marker(self: *Self, pos: usize, updated_item: *Block) !void {
-            self.markers.clearAndFree();
-            try self.markers.append(.{
-                .pos = pos,
-                .item = updated_item,
-                .timestamp = std.time.milliTimestamp(),
-            });
-            self.curr_idx = 1;
+        pub const OpType = enum {
+            add,
+            del,
+        };
+
+        // should be called when a new block is added or an existing block is deleted
+        // updates positions for block pointers
+        pub fn update_marker(self: *Self, pos: usize, updated_item: *Block, opType: OpType) !void {
+            for (self.markers.items) |*value| {
+                switch (opType) {
+                    .add => if (value.pos > pos) {
+                        value.pos += updated_item.content.len;
+                        value.timestamp = std.time.timestamp();
+                    },
+                    .del => if (value.pos > pos) {
+                        value.pos -= updated_item.content.len;
+                        value.timestamp = std.time.timestamp();
+                    },
+                }
+            }
             return;
         }
 
-        // TODO: this should eventually update all existing markers with every update that
-        // happens in the document, right now it de-allocates all markers and keeps only one
-        // for simplicity
-        pub fn overwrite(self: *Self, pos: usize, block: *Block) anyerror!void {
-            self.markers.deinit();
+        pub fn destroy_markers(self: *Self) void {
+            self.markers.clearAndFree();
             self.curr_idx = 0;
-            _ = try self.new(pos, block);
         }
 
         // find_marker returns the best possible marker for a given position in the document
