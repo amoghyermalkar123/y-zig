@@ -161,6 +161,7 @@ pub fn BlockStoreType() type {
         // this function should only be called in certain scenarios when a block actually requires
         // splitting, the caller needs to have all checks in place before calling this function
         // we dont want to split weirdly
+        // TODO: revisit how this algoritm will work, refer yjs
         fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
             const split_point = m.item.content.len - index - 1;
             // use split point to create two blocks
@@ -190,11 +191,9 @@ pub fn BlockStoreType() type {
                 m.item.right.?.left = blk_right;
             }
 
-            // destroy all markers until i figure out how to deal with marker updation
-            // in the scenario where the pointed block is split
-            self.marker_system.destroy_markers();
-            // delete existing item at index
-            try self.delete_block(m);
+            self.marker_system.deleteMarkerAtPos(m.pos);
+            _ = try self.marker_system.new(index, new_block);
+            try self.marker_system.update_markers(index, new_block, .add);
         }
 
         // attaches new_block and m (marker) as each other's neighbor
@@ -225,14 +224,6 @@ pub fn BlockStoreType() type {
             new_block.left_origin = ID.id(SPECIAL_CLOCK_LEFT, 1);
             new_block.right_origin = ID.id(SPECIAL_CLOCK_RIGHT, 1);
             self.start = new_block;
-        }
-
-        // TODO: special case first and last elements
-        fn delete_block(self: *Self, marker: Marker) !void {
-            if (marker.item.left != null) marker.item.left.?.right = marker.item.right;
-            if (marker.item.right != null) marker.item.right.?.left = marker.item.left;
-
-            self.allocator.destroy(marker.item);
         }
 
         // inserts a text content in the block store
@@ -397,7 +388,7 @@ test "localInsert" {
 
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -427,7 +418,7 @@ test "localInsert between" {
 
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -452,7 +443,7 @@ test "searchMarkers" {
 
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -484,7 +475,7 @@ test "integrate - basic non-conflicting case" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -524,7 +515,7 @@ test "integrate - concurrent edits at same position" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -575,7 +566,7 @@ test "integrate - same client different clocks" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -616,7 +607,7 @@ test "integrate - duplicate ID" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -658,7 +649,7 @@ test "integrate - null origins should fail" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var array = BlockStoreType().init(allocator, &marker_system, &clk);
     defer array.deinit();
@@ -688,7 +679,7 @@ test "same origin multiple items - basic ordering" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     defer store.deinit();
@@ -720,7 +711,7 @@ test "origin crossing prevention - basic" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     defer store.deinit();
@@ -771,7 +762,7 @@ test "blockSplit - basic" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     defer store.deinit();
@@ -791,27 +782,37 @@ test "blockSplit - basic" {
 
 // TODO: figure how to solve this flow.
 // figure out how to update markers in block splitting cases.
+// PROB: marker system lags behind the block_store check the debug
+// added in this test
 test "blockSplit - twice the split" {
     var clk = Clock.init();
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     defer store.deinit();
 
     try store.insert_text(0, "ABC");
     try store.insert_text(1, "DEF");
-    try store.insert_text(1, "XY");
 
     var current = store.start;
     var content = std.ArrayList(u8).init(allocator);
     while (current != null) : (current = current.?.right) {
         try content.appendSlice(current.?.content);
     }
+    std.debug.print("before : {s}\n", .{content.items});
+    try store.insert_text(1, "XY");
 
-    const result = content.items;
+    var current1 = store.start;
+    var content1 = std.ArrayList(u8).init(allocator);
+    while (current1 != null) : (current1 = current1.?.right) {
+        try content1.appendSlice(current1.?.content);
+    }
+    std.debug.print("after : {s}\n", .{content1.items});
+
+    const result = content1.items;
     try t.expectEqualStrings("AXYDEFBC", result);
 }

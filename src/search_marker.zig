@@ -19,13 +19,13 @@ pub const MarkerError = error{
 // they help save time traversing a block store
 pub fn SearchMarkerType() type {
     return struct {
-        markers: *std.ArrayList(Marker),
+        markers: *std.AutoHashMap(usize, Marker),
         curr_idx: u8,
         max_cap: u8 = 10,
 
         const Self = @This();
 
-        pub fn init(allocator: *std.ArrayList(Marker)) Self {
+        pub fn init(allocator: *std.AutoHashMap(usize, Marker)) Self {
             return Self{
                 .markers = allocator,
                 .curr_idx = 0,
@@ -33,13 +33,14 @@ pub fn SearchMarkerType() type {
         }
 
         pub fn new(self: *Self, pos: usize, block: *Block) anyerror!Marker {
-            try self.markers.append(.{
+            const m = .{
                 .pos = pos,
                 .item = block,
                 .timestamp = std.time.milliTimestamp(),
-            });
+            };
+            try self.markers.put(@intFromPtr(block), m);
             self.curr_idx += 1;
-            return self.markers.items[0];
+            return m;
         }
 
         pub const OpType = enum {
@@ -49,8 +50,11 @@ pub fn SearchMarkerType() type {
 
         // should be called when a new block is added or an existing block is deleted
         // updates positions for block pointers
-        pub fn update_marker(self: *Self, pos: usize, updated_item: *Block, opType: OpType) !void {
-            for (self.markers.items) |*value| {
+        pub fn update_markers(self: *Self, pos: usize, updated_item: *Block, opType: OpType) !void {
+            var iter = self.markers.iterator();
+            var next = iter.next();
+            while (next != null) : (next = iter.next()) {
+                var value = next.?.value_ptr.*;
                 switch (opType) {
                     .add => if (value.pos > pos) {
                         value.pos += updated_item.content.len;
@@ -65,6 +69,16 @@ pub fn SearchMarkerType() type {
             return;
         }
 
+        pub fn deleteMarkerAtPos(self: *Self, pos: usize) void {
+            var iter = self.markers.iterator();
+            var next = iter.next();
+            while (next != null) : (next = iter.next()) {
+                if (pos == next.?.value_ptr.*.pos) {
+                    _ = self.markers.remove(next.?.key_ptr.*);
+                }
+            }
+        }
+
         pub fn destroy_markers(self: *Self) void {
             self.markers.clearAndFree();
             self.curr_idx = 0;
@@ -72,13 +86,16 @@ pub fn SearchMarkerType() type {
 
         // find_marker returns the best possible marker for a given position in the document
         pub fn find_block(self: *Self, pos: usize) !Marker {
-            if (self.markers.items.len == 0) return MarkerError.NoMarkers;
+            if (self.markers.count() == 0) return MarkerError.NoMarkers;
 
-            var marker: Marker = self.markers.items[0];
-            for (self.markers.items) |mrk| {
-                if (pos == mrk.pos) {
-                    marker = mrk;
-                    return marker;
+            var iter = self.markers.iterator();
+            var next = iter.next();
+
+            const marker = next.?.value_ptr;
+
+            while (next != null) : (next = iter.next()) {
+                if (pos == next.?.value_ptr.pos) {
+                    return next.?.value_ptr.*;
                 }
             }
 
@@ -101,7 +118,7 @@ pub fn SearchMarkerType() type {
             // TODO: from yjs - making sure the left can't be merged with
             // TODO: update existing marker upon reaching limit
             const final = Marker{ .pos = p, .item = b.?, .timestamp = std.time.milliTimestamp() };
-            try self.markers.append(final);
+            try self.markers.put(@intFromPtr(b.?), final);
             return final;
         }
     };

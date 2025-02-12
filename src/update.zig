@@ -88,7 +88,7 @@ test "apply_update: concurrent client updates:in the middle: happy-flow" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
@@ -154,7 +154,7 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
@@ -217,7 +217,7 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
@@ -283,7 +283,7 @@ test "apply_update: concurrent client updates:missing blocks" {
     const allocator = arena.allocator();
 
     // Setup marker system
-    var marker_list = std.ArrayList(Marker).init(allocator);
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
 
