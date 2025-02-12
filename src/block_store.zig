@@ -786,24 +786,20 @@ test "blockSplit - basic" {
 // added in this test
 test "blockSplit - twice the split" {
     var clk = Clock.init();
+
     var arena = std.heap.ArenaAllocator.init(t.allocator);
+
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
     var marker_system = SearchMarkerType().init(&marker_list);
+
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     defer store.deinit();
 
     try store.insert_text(0, "ABC");
     try store.insert_text(1, "DEF");
-
-    var current = store.start;
-    var content = std.ArrayList(u8).init(allocator);
-    while (current != null) : (current = current.?.right) {
-        try content.appendSlice(current.?.content);
-    }
-    std.debug.print("before : {s}\n", .{content.items});
     try store.insert_text(1, "XY");
 
     var current1 = store.start;
@@ -811,8 +807,7 @@ test "blockSplit - twice the split" {
     while (current1 != null) : (current1 = current1.?.right) {
         try content1.appendSlice(current1.?.content);
     }
-    std.debug.print("after : {s}\n", .{content1.items});
-
     const result = content1.items;
+
     try t.expectEqualStrings("AXYDEFBC", result);
 }
