@@ -780,10 +780,6 @@ test "blockSplit - basic" {
     try t.expectEqualStrings("ADEFBC", result);
 }
 
-// TODO: figure how to solve this flow.
-// figure out how to update markers in block splitting cases.
-// PROB: marker system lags behind the block_store check the debug
-// added in this test
 test "blockSplit - twice the split" {
     var clk = Clock.init();
 
