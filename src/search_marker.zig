@@ -54,13 +54,13 @@ pub fn SearchMarkerType() type {
             var iter = self.markers.iterator();
             var next = iter.next();
             while (next != null) : (next = iter.next()) {
-                var value = next.?.value_ptr.*;
+                var value = next.?.value_ptr;
                 switch (opType) {
-                    .add => if (value.pos > pos) {
+                    .add => if (value.pos >= pos) {
                         value.pos += updated_item.content.len;
                         value.timestamp = std.time.timestamp();
                     },
-                    .del => if (value.pos > pos) {
+                    .del => if (value.pos >= pos) {
                         value.pos -= updated_item.content.len;
                         value.timestamp = std.time.timestamp();
                     },

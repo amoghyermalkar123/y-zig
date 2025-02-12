@@ -190,10 +190,6 @@ pub fn BlockStoreType() type {
                 blk_right.right = m.item.right;
                 m.item.right.?.left = blk_right;
             }
-
-            self.marker_system.deleteMarkerAtPos(m.pos);
-            _ = try self.marker_system.new(index, new_block);
-            try self.marker_system.update_markers(index, new_block, .add);
         }
 
         // attaches new_block and m (marker) as each other's neighbor
@@ -239,11 +235,19 @@ pub fn BlockStoreType() type {
             };
 
             if (index < self.length) {
-                if (index > m.pos and index < m.item.content.len)
-                    try self.split_and_add_block(m, new_block, index)
-                else
+                if (index > m.pos and index < m.item.content.len) {
+                    try self.split_and_add_block(m, new_block, index);
+
+                    self.marker_system.deleteMarkerAtPos(m.pos);
+                    try self.marker_system.update_markers(index, new_block, .add);
+
+                    _ = try self.marker_system.new(index, new_block);
+                } else {
                     attach_neighbor(new_block, m.item);
+                    try self.marker_system.update_markers(index, new_block, .add);
+                }
             } else if (self.start == null) {
+                // TODO: update markers in this flow as well
                 self.attach_first(new_block);
             } else {
                 attach_last(new_block, m.item);
@@ -806,4 +810,33 @@ test "blockSplit - twice the split" {
     const result = content1.items;
 
     try t.expectEqualStrings("AXYDEFBC", result);
+}
+
+test "blockSplit - thrice the split" {
+    var clk = Clock.init();
+
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer store.deinit();
+
+    try store.insert_text(0, "ABC");
+    try store.insert_text(1, "DEF");
+    try store.insert_text(1, "LMN");
+    try store.insert_text(1, "PQR");
+
+    var current1 = store.start;
+    var content1 = std.ArrayList(u8).init(allocator);
+    while (current1 != null) : (current1 = current1.?.right) {
+        try content1.appendSlice(current1.?.content);
+    }
+    const result = content1.items;
+
+    try t.expectEqualStrings("APQRLMNDEFBC", result);
 }
