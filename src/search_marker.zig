@@ -1,10 +1,6 @@
 const std = @import("std");
 const Block = @import("./block_store.zig").Block;
 
-// TODO: Marker positions should ALWAYS point to the start of a block
-// which holds a bigger content i.e. if a content in a block is 8 length
-// and it's the second block at position 2, the marker should point to 2
-// and this should follow along during block splitting as well.
 pub const Marker = struct {
     item: *Block,
     pos: usize,

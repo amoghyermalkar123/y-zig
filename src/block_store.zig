@@ -192,7 +192,7 @@ pub fn BlockStoreType() type {
             }
         }
 
-        // attaches new_block and m (marker) as each other's neighbor
+        // attaches new_block and neighbor block 'm' as each other's neighbor
         fn attach_neighbor(new_block: *Block, m: *Block) void {
             assert(m.left != null);
             // attach neighbors
@@ -223,6 +223,7 @@ pub fn BlockStoreType() type {
         }
 
         // inserts a text content in the block store
+        // TODO: support the case where a new item is added at 0th index when one already exists
         pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
             // allocate memory for new block
             const new_block = try self.allocator.create(Block);
@@ -247,7 +248,6 @@ pub fn BlockStoreType() type {
                     try self.marker_system.update_markers(index, new_block, .add);
                 }
             } else if (self.start == null) {
-                // TODO: update markers in this flow as well
                 self.attach_first(new_block);
             } else {
                 attach_last(new_block, m.item);
