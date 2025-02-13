@@ -21,15 +21,18 @@ Phase 1: Only focus on Single character content
 
 Phase 2: add support for a proper string content
 - Items:
-  - implement block splitting
-  - marker updating everytime a new thing happens
+  [X] implement block splitting
+  [X] marker updating everytime a new thing happens
+  [] check for api and algorithm improvements compared to YJS
+  [] more comprehensive/ robust tests for the reworked API
 
 Phase 3: Build on top of it:
 - state vector based delta awareness
   - remote peer update decoding
   - performing integration on remote blocks
+  - behavior tests
 
-Phase 4: Deletions
+Phase 4: Deletions (only to be done when insertion is stable)
 - update apply logic (pending delete set)
 - support GC
 - support moved ranges (????)
