@@ -161,15 +161,22 @@ pub fn BlockStoreType() type {
         // this function should only be called in certain scenarios when a block actually requires
         // splitting, the caller needs to have all checks in place before calling this function
         // we dont want to split weirdly
-        // TODO: revisit how this algoritm will work, refer yjs
         fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
             const split_point = m.item.content.len - index - 1;
             // use split point to create two blocks
-            var blk_left = try self.allocator.create(Block);
-            blk_left.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), try self.allocator.dupe(u8, m.item.content[0..split_point]));
+            const blk_left = try self.allocate_block(
+                Block.block(
+                    ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT),
+                    try self.allocator.dupe(u8, m.item.content[0..split_point]),
+                ),
+            );
 
-            const blk_right = try self.allocator.create(Block);
-            blk_right.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), try self.allocator.dupe(u8, m.item.content[split_point..]));
+            const blk_right = try self.allocate_block(
+                Block.block(
+                    ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT),
+                    try self.allocator.dupe(u8, m.item.content[split_point..]),
+                ),
+            );
 
             // insert left split block at index
             // insert new_block at the right of left split

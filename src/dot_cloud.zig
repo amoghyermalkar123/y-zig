@@ -2,7 +2,7 @@ const std = @import("std");
 const BlockStore = @import("block_store.zig").BlockStoreType();
 
 const DotCloud = struct {
-    block_store: ?*BlockStore,
+    block_store: *BlockStore,
 
     const Self = @This();
 

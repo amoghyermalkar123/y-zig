@@ -1,15 +1,12 @@
 const std = @import("std");
-const DotCloud = @import("dot_cloud.zig.zig").DotCloud;
+const UpdateStore = @import("update.zig");
 
-// all blocks owned by the doc
+// we only support text type document
 pub const YDoc = struct {
-    dot_cloud: *DotCloud,
+    update_store: *UpdateStore,
+    // transaction
 
     const Self = @This();
 
-    pub fn init(dot_cloud: *DotCloud) Self {
-        return Self{
-            .dot_cloud = dot_cloud,
-        };
-    }
+    pub fn init() Self {}
 };
