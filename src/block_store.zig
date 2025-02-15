@@ -34,6 +34,8 @@ pub const Block = struct {
     right: ?*Block,
     content: []const u8,
 
+    const Self = @This();
+
     pub fn block(id: ID, text: []const u8) Block {
         return Block{
             .id = id,
@@ -43,6 +45,14 @@ pub const Block = struct {
             .right_origin = null,
             .content = text,
         };
+    }
+
+    // attaches left and right to self
+    fn attach_neighbor(self: *Self, left: *Block, right: *Block) void {
+        left.right = self;
+        self.left = left;
+        self.right = right;
+        right.left = self;
     }
 };
 
@@ -163,6 +173,7 @@ pub fn BlockStoreType() type {
         // we dont want to split weirdly
         fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
             const split_point = m.item.content.len - index - 1;
+
             // use split point to create two blocks
             const blk_left = try self.allocate_block(
                 Block.block(
@@ -177,25 +188,28 @@ pub fn BlockStoreType() type {
                     try self.allocator.dupe(u8, m.item.content[split_point..]),
                 ),
             );
-
             // insert left split block at index
             // insert new_block at the right of left split
             // insert right split block at the right of new_block
-            if (m.item.left != null) {
-                m.item.left.?.right = blk_left;
-                blk_left.left = m.item.left;
+            self.replace_repair(m.item, blk_left, blk_right);
+            // attaches the new left and right blocks to the new_block
+            // we just created
+            new_block.attach_neighbor(blk_left, blk_right);
+        }
+
+        // replaces `old` block by provided new_left and new_right
+        // and de-allocates `old`
+        fn replace_repair(self: *Self, old: *Block, new_left: *Block, new_right: *Block) void {
+            if (old.left != null) {
+                old.left.?.right = new_left;
+                new_left.left = old.left;
             } else {
-                self.start = blk_left;
+                self.start = new_left;
             }
 
-            blk_left.right = new_block;
-            new_block.left = blk_left;
-            new_block.right = blk_right;
-            blk_right.left = new_block;
-
-            if (m.item.right != null) {
-                blk_right.right = m.item.right;
-                m.item.right.?.left = blk_right;
+            if (old.right != null) {
+                new_right.right = old.right;
+                old.right.?.left = new_right;
             }
         }
 
@@ -282,8 +296,8 @@ pub fn BlockStoreType() type {
         }
 
         // caller should take care of adding the block to the respective dot cloud
-        pub fn integrate(self: *Self, block: *Block) anyerror!void {
-            std.debug.assert(block.left_origin != null and block.right_origin != null);
+        pub fn integrate(self: *Self, block: *Block) !void {
+            assert(block.left_origin != null and block.right_origin != null);
 
             var isConflict = false;
             // this case check can be a false positive, if your blocks do no go through neighbor checking
