@@ -23,8 +23,7 @@ Phase 2: add support for a proper string content
 - Items:
   [X] implement block splitting
   [X] marker updating everytime a new thing happens
-  [] check for api and algorithm improvements compared to YJS
-  [] more comprehensive/ robust tests for the reworked API
+  [X] scrap replay system
 
 Phase 3: Build on top of it:
 - state vector based delta awareness
@@ -33,8 +32,18 @@ Phase 3: Build on top of it:
   - behavior tests
 
 Phase 4: Deletions (only to be done when insertion is stable)
-- update apply logic (pending delete set)
+- support pending delete set queue and retry
 - support GC
-- support moved ranges (????)
 
 This project is heavy WIP
+
+non triaged
+  [] make `integrate` work for both local and remote blocks
+  [] check for api and algorithm improvements
+  [] more comprehensive/ robust tests (tests are unreadable)
+  [] abstraction based dev
+    - block store should be a good reusable abstraction not constrained to a type
+    - type operator should build on top of a block store
+    - revisit marker system in terms of faster and efficient ops
+  [] support moved ranges
+
