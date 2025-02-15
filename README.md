@@ -25,21 +25,24 @@ Phase 2: add support for a proper string content
   [X] marker updating everytime a new thing happens
   [X] scrap replay system
 
-Phase 3: Build on top of it:
-- state vector based delta awareness
-  - remote peer update decoding
-  - performing integration on remote blocks
-  - behavior tests
+Phase 3:
+  [] make `integrate` work for both local and remote blocks
+  [] check for api and algorithm improvements
 
 Phase 4: Deletions (only to be done when insertion is stable)
 - support pending delete set queue and retry
 - support GC
 
+Phase 5: Build on top of it:
+- state vector based delta awareness
+  - remote peer update decoding
+  - performing integration on remote blocks
+  - behavior tests
+
+
 This project is heavy WIP
 
 non triaged
-  [] make `integrate` work for both local and remote blocks
-  [] check for api and algorithm improvements
   [] more comprehensive/ robust tests (tests are unreadable)
   [] abstraction based dev
     - block store should be a good reusable abstraction not constrained to a type
