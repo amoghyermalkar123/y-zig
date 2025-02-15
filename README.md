@@ -43,7 +43,6 @@ Phase 5: Build on top of it:
 - using the snapshot system for sophisticated replay system for
   educational purposes
 
-
 This project is heavy WIP
 
 non triaged
