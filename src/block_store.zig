@@ -392,8 +392,7 @@ pub fn BlockStoreType() type {
 
             // reconnect left neighbor
             if (block.left != null) {
-                const right = block.left.?.right;
-                block.right = right;
+                block.right = block.left.?.right;
                 block.left.?.right = block;
             } else {
                 block.right = self.start;
