@@ -28,7 +28,7 @@ pub fn SearchMarkerType() type {
             };
         }
 
-        pub fn new(self: *Self, pos: usize, block: *Block) anyerror!Marker {
+        pub fn new(self: *Self, pos: usize, block: *Block) !Marker {
             const m = .{
                 .pos = pos,
                 .item = block,
