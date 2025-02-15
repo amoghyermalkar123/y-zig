@@ -39,7 +39,6 @@ Phase 5: Build on top of it:
   - performing integration on remote blocks
   - behavior tests
 
-
 This project is heavy WIP
 
 non triaged
