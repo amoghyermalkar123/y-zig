@@ -262,22 +262,26 @@ pub fn BlockStoreType() type {
                 else => unreachable,
             };
 
-            if (index < self.length) {
-                if (index > m.pos and index < m.item.content.len) {
-                    try self.split_and_add_block(m, new_block, index);
-
-                    self.marker_system.deleteMarkerAtPos(m.pos);
-                    try self.marker_system.update_markers(index, new_block, .add);
-
-                    _ = try self.marker_system.new(index, new_block);
-                } else {
-                    attach_neighbor(new_block, m.item);
-                    try self.marker_system.update_markers(index, new_block, .add);
-                }
-            } else if (self.start == null) {
+            if (self.start == null) {
                 self.attach_first(new_block);
-            } else {
+                return;
+            }
+
+            if (index >= self.length) {
                 attach_last(new_block, m.item);
+                return;
+            }
+
+            if (index > m.pos and index < m.item.content.len) {
+                try self.split_and_add_block(m, new_block, index);
+
+                self.marker_system.deleteMarkerAtPos(m.pos);
+                try self.marker_system.update_markers(index, new_block, .add);
+
+                _ = try self.marker_system.new(index, new_block);
+            } else {
+                attach_neighbor(new_block, m.item);
+                try self.marker_system.update_markers(index, new_block, .add);
             }
         }
 
