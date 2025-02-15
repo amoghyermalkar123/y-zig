@@ -274,10 +274,9 @@ pub fn BlockStoreType() type {
 
             if (index > m.pos and index < m.item.content.len) {
                 try self.split_and_add_block(m, new_block, index);
-
+                // TODO: bring marker updates out of this function
                 self.marker_system.deleteMarkerAtPos(m.pos);
                 try self.marker_system.update_markers(index, new_block, .add);
-
                 _ = try self.marker_system.new(index, new_block);
             } else {
                 attach_neighbor(new_block, m.item);
