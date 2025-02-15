@@ -229,13 +229,19 @@ pub fn BlockStoreType() type {
             self.start = new_block;
         }
 
-        // inserts a text content in the block store
-        // TODO: support the case where a new item is added at 0th index when one already exists
-        pub fn insert_text(self: *Self, index: usize, text: []const u8) anyerror!void {
-            // allocate memory for new block
+        pub fn insert_text(self: *Self, index: usize, text: []const u8) !void {
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
 
+            try self.insert(index, new_block);
+
+            self.length += text.len;
+            try self.updateState(new_block);
+        }
+
+        // inserts a text content in the block store
+        // TODO: support the case where a new item is added at 0th index when one already exists
+        pub fn insert(self: *Self, index: usize, new_block: *Block) !void {
             // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => try self.marker_system.new(index, new_block),
@@ -259,9 +265,6 @@ pub fn BlockStoreType() type {
             } else {
                 attach_last(new_block, m.item);
             }
-
-            self.length += text.len;
-            try self.updateState(new_block);
         }
 
         pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
