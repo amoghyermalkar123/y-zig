@@ -38,12 +38,15 @@ Phase 5: Build on top of it:
   - remote peer update decoding
   - performing integration on remote blocks
   - behavior tests
+- more comprehensive/ robust tests (tests are unreadable)
+- snapshoting system
+- using the snapshot system for sophisticated replay system for
+  educational purposes
 
 
 This project is heavy WIP
 
 non triaged
-  [] more comprehensive/ robust tests (tests are unreadable)
   [] abstraction based dev
     - block store should be a good reusable abstraction not constrained to a type
     - type operator should build on top of a block store
