@@ -46,18 +46,18 @@ pub fn SearchMarkerType() type {
 
         // should be called when a new block is added or an existing block is deleted
         // updates positions for block pointers
-        pub fn update_markers(self: *Self, pos: usize, updated_item: *Block, opType: OpType) !void {
+        pub fn update_markers(self: *Self, pos: usize, length: usize, opType: OpType) !void {
             var iter = self.markers.iterator();
             var next = iter.next();
             while (next != null) : (next = iter.next()) {
                 var value = next.?.value_ptr;
                 switch (opType) {
                     .add => if (value.pos >= pos) {
-                        value.pos += updated_item.content.len;
+                        value.pos += length;
                         value.timestamp = std.time.timestamp();
                     },
                     .del => if (value.pos >= pos) {
-                        value.pos -= updated_item.content.len;
+                        value.pos -= length;
                         value.timestamp = std.time.timestamp();
                     },
                 }
@@ -101,12 +101,21 @@ pub fn SearchMarkerType() type {
             // offset by the traversed block's content length
             var p = marker.pos;
 
+            // prob- still working when p is incremented on the wrong block
             while (b != null and p < pos) {
+                if (b.?.isDeleted == true) {
+                    b = b.?.right orelse break;
+                    continue;
+                }
                 b = b.?.right orelse break;
                 p += b.?.content.len;
             }
 
             while (b != null and p > pos) {
+                if (b.?.isDeleted == true) {
+                    b = b.?.left orelse break;
+                    continue;
+                }
                 b = b.?.left orelse break;
                 p -= b.?.content.len;
             }
