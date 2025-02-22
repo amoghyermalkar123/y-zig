@@ -27,13 +27,11 @@ Phase 2: add support for a proper string content
 
 Phase 3:
   [] make `integrate` work for both local and remote blocks
-  [] check for api and algorithm improvements
+  [] Deletions (only to be done when insertion is stable)
+    [] support pending delete set queue and retry
+    [] support GC
 
-Phase 4: Deletions (only to be done when insertion is stable)
-- support pending delete set queue and retry
-- support GC
-
-Phase 5: Build on top of it:
+Phase 4: Build on top of it:
 - state vector based delta awareness
   - remote peer update decoding
   - performing integration on remote blocks
@@ -51,4 +49,4 @@ non triaged
     - type operator should build on top of a block store
     - revisit marker system in terms of faster and efficient ops
   [] support moved ranges
-
+  [] r&d should we own `text` in block store?

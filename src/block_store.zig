@@ -33,6 +33,7 @@ pub const Block = struct {
     left: ?*Block,
     right: ?*Block,
     content: []const u8,
+    isDeleted: bool = false,
 
     const Self = @This();
 
@@ -171,9 +172,7 @@ pub fn BlockStoreType() type {
         // this function should only be called in certain scenarios when a block actually requires
         // splitting, the caller needs to have all checks in place before calling this function
         // we dont want to split weirdly
-        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, index: usize) anyerror!void {
-            const split_point = m.item.content.len - index - 1;
-
+        fn split_and_add_block(self: *Self, m: Marker, new_block: *Block, split_point: usize) !void {
             // use split point to create two blocks
             const blk_left = try self.allocate_block(
                 Block.block(
@@ -243,11 +242,98 @@ pub fn BlockStoreType() type {
             self.start = new_block;
         }
 
+        // TODO: figure out how to not run out of markers in this flow
+        pub fn delete_text(self: *Self, index: usize, length: usize) !void {
+            var deleted_length: usize = 0;
+            while (deleted_length < length) {
+                std.debug.print("begin\n", .{});
+                std.debug.print("debg {d} {d}\n", .{ index, deleted_length });
+                const m = try self.marker_system.find_block(index);
+                std.debug.print("marker: {s}\n", .{m.item.content});
+                if (m.item.content.len > length) {
+                    std.debug.print("split\n", .{});
+                    try self.split_and_delete_block(m.item, length - deleted_length);
+                    deleted_length += m.item.content.len;
+                } else {
+                    std.debug.print("deleted {s}\n", .{m.item.content});
+                    try self.delete_block(m.item);
+                    self.marker_system.deleteMarkerAtPos(m.pos);
+                    deleted_length += m.item.content.len;
+                }
+                std.debug.print("del length: {d}, tot length {d}\n", .{ deleted_length, length });
+                try self.marker_system.update_markers(index, deleted_length, .del);
+            }
+        }
+
+        fn delete_block(self: *Self, block: *Block) !void {
+            // new deleted block where text is empty and isDeleted is true
+            const new_deleted_block = try self.allocator.create(Block);
+            new_deleted_block.* = Block{
+                .content = "",
+                .id = ID{ .client = LOCAL_CLIENT, .clock = 0 },
+                .isDeleted = true,
+                .left_origin = block.left_origin,
+                .right_origin = block.right_origin,
+                .left = null,
+                .right = null,
+            };
+
+            // repair neighbor connections
+            if (block.left != null) {
+                block.left.?.right = new_deleted_block;
+                new_deleted_block.left = block.left;
+            }
+            if (block.right != null) {
+                block.right.?.left = new_deleted_block;
+                new_deleted_block.right = block.right;
+            }
+
+            // de-allocate block
+            self.allocator.destroy(block);
+        }
+
+        // replaces block with another block where isDeleted is true
+        // de-allocates block
+        fn split_and_delete_block(self: *Self, block: *Block, remaining_length: usize) !void {
+            // new deleted block where text is empty and isDeleted is true
+            const new_deleted_block = try self.allocator.create(Block);
+            new_deleted_block.* = Block{
+                .content = "",
+                .id = ID{ .client = LOCAL_CLIENT, .clock = 0 },
+                .isDeleted = true,
+                .left_origin = block.left_origin,
+                .right_origin = block.right_origin,
+                .left = null,
+                .right = null,
+            };
+
+            const blk_right = try self.allocate_block(
+                Block.block(
+                    ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT),
+                    try self.allocator.dupe(u8, block.content[remaining_length..]),
+                ),
+            );
+
+            // repair neighbor connections
+            if (block.left != null) block.left.?.right = new_deleted_block;
+            new_deleted_block.right = blk_right;
+            blk_right.left = new_deleted_block;
+            if (block.right != null) {
+                block.right.?.left = blk_right;
+                blk_right.right = block.right;
+            }
+
+            // de-allocate block
+            self.allocator.destroy(block);
+        }
+
         pub fn insert_text(self: *Self, index: usize, text: []const u8) !void {
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
 
+            std.debug.print("insert begin\n", .{});
             try self.insert(index, new_block);
+            std.debug.print("insert end\n", .{});
 
             self.length += text.len;
             try self.updateState(new_block);
@@ -256,34 +342,39 @@ pub fn BlockStoreType() type {
         // inserts a text content in the block store
         // TODO: support the case where a new item is added at 0th index when one already exists
         pub fn insert(self: *Self, index: usize, new_block: *Block) !void {
-            // find the neighbor via the marker system
             const m = self.marker_system.find_block(index) catch |err| switch (err) {
                 MarkerError.NoMarkers => try self.marker_system.new(index, new_block),
                 else => unreachable,
             };
 
+            std.debug.print("inserting {s}\n", .{new_block.content});
             if (self.start == null) {
+                std.debug.print("inserting first\n", .{});
                 self.attach_first(new_block);
                 return;
             }
 
             if (index >= self.length) {
+                std.debug.print("inserting last\n", .{});
                 attach_last(new_block, m.item);
                 return;
             }
 
             if (index > m.pos and index < m.item.content.len) {
-                try self.split_and_add_block(m, new_block, index);
+                std.debug.print("split insert\n", .{});
+                const split_point = m.item.content.len - index - 1;
+                try self.split_and_add_block(m, new_block, split_point);
                 self.marker_system.deleteMarkerAtPos(m.pos);
-                try self.marker_system.update_markers(index, new_block, .add);
+                try self.marker_system.update_markers(index, new_block.content.len, .add);
                 _ = try self.marker_system.new(index, new_block);
             } else {
+                std.debug.print("block insert\n", .{});
                 attach_neighbor(new_block, m.item);
-                try self.marker_system.update_markers(index, new_block, .add);
+                try self.marker_system.update_markers(index, new_block.content.len, .add);
             }
         }
 
-        pub fn content(self: *Self, allocator: *std.ArrayList(u8)) anyerror!void {
+        pub fn content(self: *Self, allocator: *std.ArrayList(u8)) !void {
             var next = self.start;
             while (next != null) {
                 try allocator.appendSlice(next.?.content);
@@ -438,6 +529,53 @@ test "localInsert" {
     const content = try buf.toOwnedSlice();
 
     try t.expectEqualSlices(u8, "ABCDEF", content);
+}
+
+test "localDelete" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
+
+    try array.insert_text(0, "A");
+    try array.insert_text(1, "B");
+    try array.delete_text(1, 1);
+
+    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    try array.content(&buf);
+    const content = try buf.toOwnedSlice();
+
+    try t.expectEqualSlices(u8, "A", content);
+}
+
+test "localDelete - run" {
+    var clk = Clock.init();
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+    var array = BlockStoreType().init(allocator, &marker_system, &clk);
+    defer array.deinit();
+
+    try array.insert_text(0, "A");
+    try array.insert_text(1, "B");
+    try array.insert_text(2, "CDEF");
+    try array.delete_text(1, 3);
+
+    var buf = std.ArrayList(u8).init(std.heap.page_allocator);
+    try array.content(&buf);
+    const content = try buf.toOwnedSlice();
+
+    try t.expectEqualSlices(u8, "AEF", content);
 }
 
 test "localInsert between" {
