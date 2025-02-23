@@ -26,10 +26,9 @@ Phase 2: add support for a proper string content
   [X] scrap replay system
 
 Phase 3:
-  [] make `integrate` work for both local and remote blocks
   [] Deletions (only to be done when insertion is stable)
+    [X] support deleting blocks and block splits
     [] support pending delete set queue and retry
-    [] support GC
 
 Phase 4: Build on top of it:
 - state vector based delta awareness
@@ -44,6 +43,7 @@ Phase 4: Build on top of it:
 This project is heavy WIP
 
 non triaged
+  [] make `integrate` work for both local and remote blocks
   [] abstraction based dev
     - block store should be a good reusable abstraction not constrained to a type
     - type operator should build on top of a block store
