@@ -246,21 +246,15 @@ pub fn BlockStoreType() type {
         pub fn delete_text(self: *Self, index: usize, length: usize) !void {
             var deleted_length: usize = 0;
             while (deleted_length < length) {
-                std.debug.print("begin\n", .{});
-                std.debug.print("debg {d} {d}\n", .{ index, deleted_length });
                 const m = try self.marker_system.find_block(index);
-                std.debug.print("marker: {s}\n", .{m.item.content});
                 if (m.item.content.len > length) {
-                    std.debug.print("split\n", .{});
                     try self.split_and_delete_block(m.item, length - deleted_length);
                     deleted_length += m.item.content.len;
                 } else {
-                    std.debug.print("deleted {s}\n", .{m.item.content});
                     try self.delete_block(m.item);
                     self.marker_system.deleteMarkerAtPos(m.pos);
                     deleted_length += m.item.content.len;
                 }
-                std.debug.print("del length: {d}, tot length {d}\n", .{ deleted_length, length });
                 try self.marker_system.update_markers(index, deleted_length, .del);
             }
         }
@@ -331,9 +325,7 @@ pub fn BlockStoreType() type {
             const new_block = try self.allocator.create(Block);
             new_block.* = Block.block(ID.id(self.monotonic_clock.getClock(), LOCAL_CLIENT), text);
 
-            std.debug.print("insert begin\n", .{});
             try self.insert(index, new_block);
-            std.debug.print("insert end\n", .{});
 
             self.length += text.len;
             try self.updateState(new_block);
@@ -347,28 +339,23 @@ pub fn BlockStoreType() type {
                 else => unreachable,
             };
 
-            std.debug.print("inserting {s}\n", .{new_block.content});
             if (self.start == null) {
-                std.debug.print("inserting first\n", .{});
                 self.attach_first(new_block);
                 return;
             }
 
             if (index >= self.length) {
-                std.debug.print("inserting last\n", .{});
                 attach_last(new_block, m.item);
                 return;
             }
 
             if (index > m.pos and index < m.item.content.len) {
-                std.debug.print("split insert\n", .{});
                 const split_point = m.item.content.len - index - 1;
                 try self.split_and_add_block(m, new_block, split_point);
                 self.marker_system.deleteMarkerAtPos(m.pos);
                 try self.marker_system.update_markers(index, new_block.content.len, .add);
                 _ = try self.marker_system.new(index, new_block);
             } else {
-                std.debug.print("block insert\n", .{});
                 attach_neighbor(new_block, m.item);
                 try self.marker_system.update_markers(index, new_block.content.len, .add);
             }
