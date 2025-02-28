@@ -40,3 +40,5 @@ Phase 3:
 
 Phase 4:
   [] make this a idiomatic zig library
+      - study libghostty
+      - study ?
