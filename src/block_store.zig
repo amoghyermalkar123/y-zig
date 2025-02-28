@@ -91,7 +91,6 @@ pub fn BlockStoreType() type {
             }
         }
 
-        // TODO: optimize search
         // when items being added at end from remote update, this will never match for the right origin
         // because we are checking clock and client for right sentinel which will not match
         pub fn get_block_by_id(self: Self, id: ID) ?*Block {

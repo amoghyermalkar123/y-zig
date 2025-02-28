@@ -29,7 +29,6 @@ pub const LogLevel = enum {
 };
 
 pub const EventType = enum {
-    // TODO: probably won't use these 2
     create,
     delete,
     // block
