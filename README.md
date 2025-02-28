@@ -29,24 +29,3 @@ Phase 3:
   [] Deletions (only to be done when insertion is stable)
     [X] support deleting blocks and block splits
     [] support pending delete set queue and retry
-
-Phase 4: Build on top of it:
-- state vector based delta awareness
-  - remote peer update decoding
-  - performing integration on remote blocks
-  - behavior tests
-- more comprehensive/ robust tests (tests are unreadable)
-- snapshoting system
-- using the snapshot system for sophisticated replay system for
-  educational purposes
-
-This project is heavy WIP
-
-non triaged
-  [] make `integrate` work for both local and remote blocks
-  [] abstraction based dev
-    - block store should be a good reusable abstraction not constrained to a type
-    - type operator should build on top of a block store
-    - revisit marker system in terms of faster and efficient ops
-  [] support moved ranges
-  [] r&d should we own `text` in block store?
