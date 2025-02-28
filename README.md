@@ -29,6 +29,14 @@ Phase 3:
   [] Deletions (only to be done when insertion is stable)
     [X] support deleting blocks and block splits
     [] support pending delete set queue and retry
+        - jot down yjs working of basic algorithm
+        - figure out how yjs does retrying
+  [] state vector difference, only applying delta of changes
+    - figure out how yjs calculates the difference (should simply be a vector subtraction) 
+    - pseudo code for diff logic
+    - implement the diff logic
+    - happy flow test
+    - rest of the test cases
 
 Phase 4:
   [] make this a idiomatic zig library
