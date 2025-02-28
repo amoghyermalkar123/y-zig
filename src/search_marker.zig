@@ -101,7 +101,7 @@ pub fn SearchMarkerType() type {
             // offset by the traversed block's content length
             var p = marker.pos;
 
-            // prob- still working when p is incremented on the wrong block
+            // TODO: prob - still working when p is incremented on the wrong block
             while (b != null and p < pos) {
                 if (b.?.isDeleted == true) {
                     b = b.?.right orelse break;
