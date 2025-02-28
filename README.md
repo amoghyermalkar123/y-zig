@@ -29,3 +29,6 @@ Phase 3:
   [] Deletions (only to be done when insertion is stable)
     [X] support deleting blocks and block splits
     [] support pending delete set queue and retry
+
+Phase 4:
+  [] make this a idiomatic zig library
