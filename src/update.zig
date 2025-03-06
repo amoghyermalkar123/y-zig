@@ -31,6 +31,7 @@ pub const PendingStruct = struct {
     }
 };
 
+// Updates is an incoming message from a remote peer
 pub const Updates = struct {
     updates: *std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90),
 };
@@ -39,40 +40,49 @@ pub const UpdateResult = struct {
     pending: PendingStruct,
 };
 
-// TODO: final check for this function, see if are yet to add anything from yjs impl and add
-// the base version atleast is ready, tests passing
-pub fn apply_update(allocator: std.mem.Allocator, store: *BlockStoreType(), update: Updates) !UpdateResult {
-    var result = UpdateResult{
-        .pending = PendingStruct.init(allocator),
-    };
+pub const UpdateStore = struct {
+   allocator: std.mem.Allocator,
+   pending: *PendingStruct,
 
-    var iter = update.updates.iterator();
-    while (iter.next()) |entry| {
-        const blocks = entry.value_ptr.*;
+   const Self = @This();
 
-        for (blocks.items) |block| {
-            // Allocate space for this block
-            const blk = try store.allocate_block(block);
+   pub fn init(allocator: std.mem.Allocator, pending: *PendingStruct) Self {
+       return .{
+           .allocator = allocator,
+           .pending = pending,
+       };
+   }
 
-            // Check if we have all dependencies
-            if (try store.getMissing(blk) != null) {
-                // We're missing updates from this client, add to pending queue
-                try result.pending.addPending(blk);
-                continue;
+   pub fn apply_update(self: *Self, store: *BlockStoreType(), update: Updates) !void {
+        var iter = update.updates.iterator();
+        while (iter.next()) |entry| {
+            const blocks = entry.value_ptr.*;
+
+            for (blocks.items) |block| {
+                // Allocate space for this block
+                const blk = try store.allocate_block(block);
+
+                // Check if we have all dependencies
+                if (try store.getMissing(blk) != null) {
+                    // We're missing updates from this client, add to pending queue
+                    try self.pending.addPending(blk);
+                    continue;
+                }
+
+                // Try to integrate
+                store.integrate(blk) catch {
+                    try self.pending.addPending(blk);
+                    continue;
+                };
+
+                // Update state after successful integration
+                try store.updateState(blk);
             }
-
-            // Try to integrate
-            store.integrate(blk) catch {
-                try result.pending.addPending(blk);
-                continue;
-            };
-
-            // Update state after successful integration
-            try store.updateState(blk);
         }
-    }
-    return result;
-}
+        return;
+    }  
+};
+
 
 const t = std.testing;
 
@@ -136,15 +146,21 @@ test "apply_update: concurrent client updates:in the middle: happy-flow" {
     defer updates.deinit();
     try updates.put(1, &blocks_list);
 
-    // Apply update
-    const result = try apply_update(allocator, &store, .{ .updates = &updates });
+    const up = Updates{
+        .updates = &updates,
+    };
+    
+    var ps = PendingStruct.init(allocator);
+    var us = UpdateStore.init(allocator, &ps);
+    
+    try us.apply_update(&store, up);
 
     // Verify content
     var buf = std.ArrayList(u8).init(allocator);
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ACDB", content);
-    try t.expect(result.pending.blocks.count() == 0);
+    try t.expect(us.pending.blocks.count() == 0);
 }
 
 test "apply_update: concurrent client updates:at the end: happy-flow" {
@@ -199,15 +215,20 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
     defer updates.deinit();
     try updates.put(1, &blocks_list);
 
-    // Apply update
-    const result = try apply_update(allocator, &store, .{ .updates = &updates });
-
+    const up = Updates{
+        .updates = &updates,
+    };
+    
+    var ps = PendingStruct.init(allocator);
+    var us = UpdateStore.init(allocator, &ps);
+    
+    try us.apply_update(&store, up);
     // Verify content - should be ABCD since C has lower client clock than D
     var buf = std.ArrayList(u8).init(allocator);
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "ABCD", content);
-    try t.expect(result.pending.blocks.count() == 0);
+    try t.expect(us.pending.blocks.count() == 0);
 }
 
 test "apply_update: concurrent client updates:at the start: happy-flow" {
@@ -265,15 +286,20 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     try updates.put(2, &blocks_list);
     try updates.put(4, &blocks_list_another);
 
-    // Apply update
-    const result = try apply_update(allocator, &store, .{ .updates = &updates });
-
+    const up = Updates{
+        .updates = &updates,
+    };
+    
+    var ps = PendingStruct.init(allocator);
+    var us = UpdateStore.init(allocator, &ps);
+    
+    try us.apply_update(&store, up);
     // Verify content - should be CDAB since C has lower client clock than D
     var buf = std.ArrayList(u8).init(allocator);
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "CDAB", content);
-    try t.expect(result.pending.blocks.count() == 0);
+    try t.expect(us.pending.blocks.count() == 0);
 }
 
 test "apply_update: concurrent client updates:missing blocks" {
@@ -315,14 +341,19 @@ test "apply_update: concurrent client updates:missing blocks" {
     defer updates.deinit();
     try updates.put(4, &blocks_list);
 
-    // Apply update
-    const result = try apply_update(allocator, &store, .{ .updates = &updates });
-
+    const up = Updates{
+        .updates = &updates,
+    };
+    
+    var ps = PendingStruct.init(allocator);
+    var us = UpdateStore.init(allocator, &ps);
+    
+    try us.apply_update(&store, up);
     // Verify that block was added to pending
-    try t.expect(result.pending.blocks.count() == 1);
+    try t.expect(us.pending.blocks.count() == 1);
 
     // Verify that the block in pending is our block C
-    const block_c_in_pending = result.pending.blocks.get(block_c.id);
+    const block_c_in_pending = us.pending.blocks.get(block_c.id);
     try t.expect(block_c_in_pending != null);
     try t.expect(std.mem.eql(u8, block_c_in_pending.?.content, "C"));
 
