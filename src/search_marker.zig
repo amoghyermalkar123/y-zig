@@ -29,7 +29,7 @@ pub fn SearchMarkerType() type {
         }
 
         pub fn new(self: *Self, pos: usize, block: *Block) !Marker {
-            const m = .{
+            const m = Marker{
                 .pos = pos,
                 .item = block,
                 .timestamp = std.time.milliTimestamp(),
