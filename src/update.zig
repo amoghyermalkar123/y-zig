@@ -31,29 +31,93 @@ pub const PendingStruct = struct {
     }
 };
 
+pub const DeleteItem = struct {
+    // Starting clock value
+    clock: u64,
+    // Number of items deleted in sequence
+    len: u64,
+
+    // Constructor for convenience
+    pub fn item(clock: u64, len: u64) DeleteItem {
+        return DeleteItem{
+            .clock = clock,
+            .len = len,
+        };
+    }
+};
+
+pub const DeleteSet = struct {
+    // Maps client IDs to arrays of DeleteItems
+    clients: std.AutoHashMap(u64, std.ArrayList(DeleteItem)),
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator) DeleteSet {
+        return DeleteSet{
+            .clients = std.AutoHashMap(u64, std.ArrayList(DeleteItem)).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DeleteSet) void {
+        var it = self.clients.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+        self.clients.deinit();
+    }
+
+    pub fn addToDeleteSet(self: *Self, client: u64, clock: u64, length: u64) !void {
+        // If length is 0, there's nothing to delete
+        if (length == 0) return;
+
+        var entry = try self.clients.getOrPut(client);
+        if (!entry.found_existing) {
+            // Create a new array list for this client
+            entry.value_ptr.* = std.ArrayList(DeleteItem).init(self.allocator);
+        }
+
+        // Add the delete item
+        try entry.value_ptr.append(DeleteItem.item(clock, length));
+    }
+
+    pub fn isDeleted(self: *Self, id: ID) bool {
+        const deleteItems = self.clients.get(id.client) orelse return false;
+
+        for (deleteItems.items) |di| {
+            if (di.clock == id.clock) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+};
+
 // Updates is an incoming message from a remote peer
 pub const Updates = struct {
     updates: *std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90),
 };
 
-pub const UpdateResult = struct {
-    pending: PendingStruct,
-};
-
 pub const UpdateStore = struct {
-   allocator: std.mem.Allocator,
-   pending: *PendingStruct,
+    allocator: std.mem.Allocator,
+    pending: PendingStruct,
+    pendingDs: DeleteSet,
 
-   const Self = @This();
+    const Self = @This();
 
-   pub fn init(allocator: std.mem.Allocator, pending: *PendingStruct) Self {
-       return .{
-           .allocator = allocator,
-           .pending = pending,
-       };
-   }
+    pub fn init(allocator: std.mem.Allocator) Self {
+        const ps = PendingStruct.init(allocator);
+        const pds = DeleteSet.init(allocator);
+        return .{
+            .allocator = allocator,
+            .pending = ps,
+            .pendingDs = pds,
+        };
+    }
 
-   pub fn apply_update(self: *Self, store: *BlockStoreType(), update: Updates) !void {
+    pub fn apply_update(self: *Self, store: *BlockStoreType(), update: Updates) !void {
         var iter = update.updates.iterator();
         while (iter.next()) |entry| {
             const blocks = entry.value_ptr.*;
@@ -80,9 +144,8 @@ pub const UpdateStore = struct {
             }
         }
         return;
-    }  
+    }
 };
-
 
 const t = std.testing;
 
@@ -149,10 +212,8 @@ test "apply_update: concurrent client updates:in the middle: happy-flow" {
     const up = Updates{
         .updates = &updates,
     };
-    
-    var ps = PendingStruct.init(allocator);
-    var us = UpdateStore.init(allocator, &ps);
-    
+
+    var us = UpdateStore.init(allocator);
     try us.apply_update(&store, up);
 
     // Verify content
@@ -218,10 +279,9 @@ test "apply_update: concurrent client updates:at the end: happy-flow" {
     const up = Updates{
         .updates = &updates,
     };
-    
-    var ps = PendingStruct.init(allocator);
-    var us = UpdateStore.init(allocator, &ps);
-    
+
+    var us = UpdateStore.init(allocator);
+
     try us.apply_update(&store, up);
     // Verify content - should be ABCD since C has lower client clock than D
     var buf = std.ArrayList(u8).init(allocator);
@@ -289,10 +349,9 @@ test "apply_update: concurrent client updates:at the start: happy-flow" {
     const up = Updates{
         .updates = &updates,
     };
-    
-    var ps = PendingStruct.init(allocator);
-    var us = UpdateStore.init(allocator, &ps);
-    
+
+    var us = UpdateStore.init(allocator);
+
     try us.apply_update(&store, up);
     // Verify content - should be CDAB since C has lower client clock than D
     var buf = std.ArrayList(u8).init(allocator);
@@ -344,10 +403,9 @@ test "apply_update: concurrent client updates:missing blocks" {
     const up = Updates{
         .updates = &updates,
     };
-    
-    var ps = PendingStruct.init(allocator);
-    var us = UpdateStore.init(allocator, &ps);
-    
+
+    var us = UpdateStore.init(allocator);
+
     try us.apply_update(&store, up);
     // Verify that block was added to pending
     try t.expect(us.pending.blocks.count() == 1);
