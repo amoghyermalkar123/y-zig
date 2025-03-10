@@ -37,7 +37,8 @@ Phase 3:
             - item id listen in transaction, then sent in the update message (i.e. as a state message)
             - remote peer gets this update message, decodes the deleted item ids list, compares local clock with remote clock,
               checks if remote is greater, performs delete locally if yes, otherwise skip
-        [] Implement delete set integration, retries.
+        [] Implement delete set integration
+        [] retry pending set (updates and deletes) everytime you start a remote integration
   [] state vector difference, only applying delta of changes
     - figure out how yjs calculates the difference (should simply be a vector subtraction) 
     - pseudo code for diff logic
@@ -49,3 +50,7 @@ Phase 4:
   [] make this a idiomatic zig library
       - study libghostty
       - study xit
+      - make `integrate` the only way to add blocks and remove the `attach_*` functions from the code
+      - only accept allocators and not other heap based structures in all init's
+      - can we make the tests look a bit cleaner?
+      - pondering a replay/ snapshot system
