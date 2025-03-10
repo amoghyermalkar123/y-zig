@@ -1,5 +1,6 @@
 const std = @import("std");
 const Block = @import("./block_store.zig").Block;
+const ID = @import("./block_store.zig").ID;
 
 pub const Marker = struct {
     item: *Block,
@@ -9,6 +10,7 @@ pub const Marker = struct {
 
 pub const MarkerError = error{
     NoMarkers,
+    BlockNotFound,
 };
 
 // SearchMarkers are indexes for the underlying block store.
@@ -78,6 +80,21 @@ pub fn SearchMarkerType() type {
         pub fn destroy_markers(self: *Self) void {
             self.markers.clearAndFree();
             self.curr_idx = 0;
+        }
+
+        pub fn get_block_pos(self: *Self, id: ID) !usize {
+            if (self.markers.count() == 0) return MarkerError.NoMarkers;
+
+            var iter = self.markers.iterator();
+            var next = iter.next();
+
+            while (next != null) : (next = iter.next()) {
+                if (next.?.value_ptr.item.id == id) {
+                    return next.?.value_ptr.pos;
+                }
+            }
+
+            return MarkerError.BlockNotFound;
         }
 
         // find_marker returns the best possible marker for a given position in the document

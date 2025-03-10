@@ -98,6 +98,7 @@ pub const DeleteSet = struct {
 // Updates is an incoming message from a remote peer
 pub const Updates = struct {
     updates: *std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90),
+    deletes: DeleteSet,
 };
 
 pub const UpdateStore = struct {
@@ -118,6 +119,7 @@ pub const UpdateStore = struct {
     }
 
     pub fn apply_update(self: *Self, store: *BlockStoreType(), update: Updates) !void {
+        // integrate updates
         var iter = update.updates.iterator();
         while (iter.next()) |entry| {
             const blocks = entry.value_ptr.*;
@@ -141,6 +143,21 @@ pub const UpdateStore = struct {
 
                 // Update state after successful integration
                 try store.updateState(blk);
+            }
+        }
+        // integrate deletes
+        var delete_iter = update.deletes.clients.iterator();
+        while (delete_iter.next()) |entry| {
+            const deleted_items = entry.value_ptr.*;
+            const client = entry.key_ptr.*;
+
+            for (deleted_items.items) |remote_item| {
+                const local_item = store.get_block_by_id(ID.id(remote_item.clock, client));
+                if (local_item == null) continue;
+
+                if (remote_item.clock > local_item.?.id.clock) {
+                    try store.delete_text(try store.get_block_index_by_id(local_item.?.id), remote_item.len);
+                }
             }
         }
         return;

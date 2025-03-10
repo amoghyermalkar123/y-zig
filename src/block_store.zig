@@ -102,6 +102,10 @@ pub fn BlockStoreType() type {
             return next;
         }
 
+        pub fn get_block_index_by_id(self: *Self, id: ID) !?usize {
+            return try self.marker_system.get_block_pos(id);
+        }
+
         pub fn getState(self: *Self, client: u64) u64 {
             return self.state_vector.get(client) orelse 0;
         }
