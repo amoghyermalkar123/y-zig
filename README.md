@@ -29,8 +29,15 @@ Phase 3:
   [] Deletions (only to be done when insertion is stable)
     [X] support deleting blocks and block splits
     [] support pending delete set queue and retry
-        - jot down yjs working of basic algorithm
-        - figure out how yjs does retrying
+        [X] jot down yjs working of basic algorithm
+        [X] figure out how yjs does retrying (process pending queue at each remote integration)
+        [X] how is deletion working in yjs as a state based CRDT
+            - deletes are treated as statebased.
+            - item marked as deleted in a field
+            - item id listen in transaction, then sent in the update message (i.e. as a state message)
+            - remote peer gets this update message, decodes the deleted item ids list, compares local clock with remote clock,
+              checks if remote is greater, performs delete locally if yes, otherwise skip
+        [] Implement delete set integration, retries.
   [] state vector difference, only applying delta of changes
     - figure out how yjs calculates the difference (should simply be a vector subtraction) 
     - pseudo code for diff logic
@@ -41,4 +48,4 @@ Phase 3:
 Phase 4:
   [] make this a idiomatic zig library
       - study libghostty
-      - study ?
+      - study xit
