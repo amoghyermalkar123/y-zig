@@ -89,7 +89,7 @@ pub fn SearchMarkerType() type {
             var next = iter.next();
 
             while (next != null) : (next = iter.next()) {
-                if (next.?.value_ptr.item.id == id) {
+                if (next.?.value_ptr.item.id.clock == id.clock and next.?.value_ptr.item.id.client == id.client) {
                     return next.?.value_ptr.pos;
                 }
             }

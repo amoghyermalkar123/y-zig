@@ -81,24 +81,12 @@ pub const DeleteSet = struct {
         // Add the delete item
         try entry.value_ptr.append(DeleteItem.item(clock, length));
     }
-
-    pub fn isDeleted(self: *Self, id: ID) bool {
-        const deleteItems = self.clients.get(id.client) orelse return false;
-
-        for (deleteItems.items) |di| {
-            if (di.clock == id.clock) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 };
 
 // Updates is an incoming message from a remote peer
 pub const Updates = struct {
     updates: *std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90),
-    deletes: DeleteSet,
+    deletes: DeleteSet = undefined,
 };
 
 pub const UpdateStore = struct {
@@ -156,7 +144,8 @@ pub const UpdateStore = struct {
                 if (local_item == null) continue;
 
                 if (remote_item.clock > local_item.?.id.clock) {
-                    try store.delete_text(try store.get_block_index_by_id(local_item.?.id), remote_item.len);
+                    const pos = try store.get_block_index_by_id(local_item.?.id) orelse continue;
+                    try store.delete_text(pos, remote_item.len);
                 }
             }
         }
@@ -437,4 +426,141 @@ test "apply_update: concurrent client updates:missing blocks" {
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
     try t.expectEqualSlices(u8, "A", content);
+}
+
+test "DeleteSet: add deletion item" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    // Add a deletion for client 1, starting at clock 5, length 3
+    try delete_set.addToDeleteSet(1, 5, 3);
+
+    // Check that the deletion was added correctly
+    try t.expect(delete_set.clients.count() == 1);
+    try t.expect(delete_set.clients.get(1).?.items.len == 1);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].clock, 5);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].len, 3);
+}
+
+test "DeleteSet: add multiple deletion items for same client" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    // Add multiple deletions for client 1
+    try delete_set.addToDeleteSet(1, 5, 3);
+    try delete_set.addToDeleteSet(1, 10, 2);
+
+    // Check that both deletions were added correctly
+    try t.expect(delete_set.clients.count() == 1);
+    try t.expect(delete_set.clients.get(1).?.items.len == 2);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].clock, 5);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].len, 3);
+    try t.expectEqual(delete_set.clients.get(1).?.items[1].clock, 10);
+    try t.expectEqual(delete_set.clients.get(1).?.items[1].len, 2);
+}
+
+test "DeleteSet: add deletion items for multiple clients" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    // Add deletions for multiple clients
+    try delete_set.addToDeleteSet(1, 5, 3);
+    try delete_set.addToDeleteSet(2, 7, 4);
+
+    // Check that deletions for both clients were added correctly
+    try t.expect(delete_set.clients.count() == 2);
+    try t.expect(delete_set.clients.get(1).?.items.len == 1);
+    try t.expect(delete_set.clients.get(2).?.items.len == 1);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].clock, 5);
+    try t.expectEqual(delete_set.clients.get(1).?.items[0].len, 3);
+    try t.expectEqual(delete_set.clients.get(2).?.items[0].clock, 7);
+    try t.expectEqual(delete_set.clients.get(2).?.items[0].len, 4);
+}
+
+test "DeleteSet: zero-length deletion" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    // Add a zero-length deletion (should be skipped)
+    try delete_set.addToDeleteSet(1, 5, 0);
+
+    // Check that the deletion wasn't added since length is 0
+    try t.expect(delete_set.clients.count() == 0);
+}
+
+test "DeleteSet: add multiple overlapping deletions" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var clk = Clock.init();
+
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    try store.insert_text(0, "ABC");
+
+
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    const base_block = store.start.?;
+
+    const block_c = try createTestBlock(allocator, ID.id(4, 2), "DEF");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "DEF",
+        .left_origin = ID.id(SENTINEL_LEFT, 2), // Points to start sentinel
+        .right_origin = base_block.id,
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    try delete_set.addToDeleteSet(2, 7, 3); 
+
+    try t.expect(delete_set.clients.count() == 1);
+    try t.expect(delete_set.clients.get(2).?.items.len == 1);
+
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+    
+    const up = Updates{
+        .updates = &updates,
+        .deletes = delete_set,
+    };
+
+    var us = UpdateStore.init(allocator);
+    try us.apply_update(&store, up);
+
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    std.debug.print("{s}", .{content});
+    // try t.expectEqualSlices(u8, "ABCD", content);
 }

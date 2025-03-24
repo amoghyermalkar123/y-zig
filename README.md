@@ -46,6 +46,7 @@ Phase 3:
     - happy flow test
     - rest of the test cases
 
+[0.2]
 Phase 4:
   [] make this a idiomatic zig library
       - study libghostty
