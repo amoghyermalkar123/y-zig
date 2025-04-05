@@ -139,10 +139,13 @@ pub const UpdateStore = struct {
             const deleted_items = entry.value_ptr.*;
             const client = entry.key_ptr.*;
 
+            // TODO: revisit Yjs for this
             for (deleted_items.items) |remote_item| {
+                // faulty
                 const local_item = store.get_block_by_id(ID.id(remote_item.clock, client));
                 if (local_item == null) continue;
 
+                // TODO: this condition is wrong, revisit yjs logic
                 if (remote_item.clock > local_item.?.id.clock) {
                     const pos = try store.get_block_index_by_id(local_item.?.id) orelse continue;
                     try store.delete_text(pos, remote_item.len);
@@ -508,7 +511,7 @@ test "DeleteSet: zero-length deletion" {
     try t.expect(delete_set.clients.count() == 0);
 }
 
-test "DeleteSet: add multiple overlapping deletions" {
+test "DeleteSet: delete request but remote block wasn't integrated previously" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
 
@@ -521,7 +524,6 @@ test "DeleteSet: add multiple overlapping deletions" {
 
     var store = BlockStoreType().init(allocator, &marker_system, &clk);
     try store.insert_text(0, "ABC");
-
 
     var blocks_list = std.ArrayList(Block).init(allocator);
     defer blocks_list.deinit();
@@ -542,14 +544,16 @@ test "DeleteSet: add multiple overlapping deletions" {
     var delete_set = DeleteSet.init(allocator);
     defer delete_set.deinit();
 
-    try delete_set.addToDeleteSet(2, 7, 3); 
+    try delete_set.addToDeleteSet(2, 2, 3);
 
     try t.expect(delete_set.clients.count() == 1);
     try t.expect(delete_set.clients.get(2).?.items.len == 1);
 
     var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
     defer updates.deinit();
-    
+
+    try updates.put(2, &blocks_list);
+
     const up = Updates{
         .updates = &updates,
         .deletes = delete_set,
@@ -561,6 +565,64 @@ test "DeleteSet: add multiple overlapping deletions" {
     var buf = std.ArrayList(u8).init(allocator);
     try store.content(&buf);
     const content = try buf.toOwnedSlice();
-    std.debug.print("{s}", .{content});
+    std.debug.print("here {s}\n", .{content});
+    // try t.expectEqualSlices(u8, "ABCD", content);
+}
+
+test "DeleteSet: basic deletion" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var clk = Clock.init();
+
+    var marker_list = std.AutoHashMap(usize, Marker).init(allocator);
+    var marker_system = SearchMarkerType().init(&marker_list);
+
+    var store = BlockStoreType().init(allocator, &marker_system, &clk);
+    try store.insert_text(0, "ABC");
+
+    var blocks_list = std.ArrayList(Block).init(allocator);
+    defer blocks_list.deinit();
+
+    const base_block = store.start.?;
+
+    const block_c = try createTestBlock(allocator, ID.id(4, 2), "DEF");
+    block_c.* = Block{
+        .id = block_c.id,
+        .content = "DEF",
+        .left_origin = ID.id(SENTINEL_LEFT, 2), // Points to start sentinel
+        .right_origin = base_block.id,
+        .left = null,
+        .right = null,
+    };
+    try blocks_list.append(block_c.*);
+
+    var delete_set = DeleteSet.init(allocator);
+    defer delete_set.deinit();
+
+    try delete_set.addToDeleteSet(2, 4, 3);
+
+    try t.expect(delete_set.clients.count() == 1);
+    try t.expect(delete_set.clients.get(2).?.items.len == 1);
+
+    var updates = std.HashMap(u64, Blocks, std.hash_map.AutoContext(u64), 90).init(allocator);
+    defer updates.deinit();
+
+    try updates.put(2, &blocks_list);
+
+    const up = Updates{
+        .updates = &updates,
+        .deletes = delete_set,
+    };
+
+    var us = UpdateStore.init(allocator);
+    try us.apply_update(&store, up);
+
+    var buf = std.ArrayList(u8).init(allocator);
+    try store.content(&buf);
+    const content = try buf.toOwnedSlice();
+    std.debug.print("here {s}\n", .{content});
     // try t.expectEqualSlices(u8, "ABCD", content);
 }

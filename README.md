@@ -10,6 +10,7 @@ focusing only on the text based data structure as of now.
 ## Roadmap
 
 ### This is a priority list arranged from high to low
+[0.1.0]
 Phase 1: Only focus on Single character content
 - Items:
   [X] implement integration logic (local insert)
@@ -39,14 +40,8 @@ Phase 3:
               checks if remote is greater, performs delete locally if yes, otherwise skip
         [] Implement delete set integration
         [] retry pending set (updates and deletes) everytime you start a remote integration
-  [] state vector difference, only applying delta of changes
-    - figure out how yjs calculates the difference (should simply be a vector subtraction) 
-    - pseudo code for diff logic
-    - implement the diff logic
-    - happy flow test
-    - rest of the test cases
 
-[0.2]
+[0.2.0]
 Phase 4:
   [] make this a idiomatic zig library
       - study libghostty
@@ -55,3 +50,9 @@ Phase 4:
       - only accept allocators and not other heap based structures in all init's
       - can we make the tests look a bit cleaner?
       - pondering a replay/ snapshot system
+  [] state vector difference, only applying delta of changes
+    - figure out how yjs calculates the difference (should simply be a vector subtraction) 
+    - pseudo code for diff logic
+    - implement the diff logic
+    - happy flow test
+    - rest of the test cases
